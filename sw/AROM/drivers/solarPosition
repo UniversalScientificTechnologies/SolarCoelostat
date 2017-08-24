@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import __init__
 import math
 import time, datetime
 import rospy
@@ -12,7 +13,8 @@ from cv_bridge import CvBridge, CvBridgeError
 
 import numpy as np
 import cv2
-from __init__ import AromNode
+#from __init__ import AromNode
+from arom_tools import AromNode
 
 
 
