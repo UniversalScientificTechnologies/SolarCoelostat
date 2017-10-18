@@ -1,0 +1,267 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import time
+import datetime
+import rospy
+import std_msgs
+import numpy as np
+import json
+import os, sys
+import h5py
+import pyqtgraph as pg
+from PyQt4 import QtGui
+from PyQt4 import QtCore
+from threading import Thread
+
+
+from arom_helper import AromNode
+
+
+class SpecCapture(Thread):
+    def __init__(self, integr_time = 100, serial = "device"):
+
+        Thread.__init__(self)
+        self.serial = serial 
+        self.integr_time = integr_time
+        self.alive = True
+        self.recording = False
+        self.image_types = ['LIGHT', 'LIGHT_TEST', 'DARK', 'BIAS', 'none']
+        self.image_type = 0
+        self.obs_area = 'sun_area'
+
+        self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
+
+        #self.spectrometer = sb.Spectrometer.from_serial_number()
+        self.NewFileToSave()
+        self.setIntegration()
+        #self.vl_range =  self.spectrometer.wavelengths()
+
+        #print self.spectrometer.serial_number
+        #print self.spectrometer.model
+        #print self.spectrometer.pixels
+
+
+    def getVaveLength(self):
+        return self.vl_range
+
+ 
+    def run(self):
+        while self.alive:
+            time.sleep(self.integr_time/1000.0)
+            self.spec = np.random.random(self.vl_range.shape[0])*2**16
+            #self.spec = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
+            
+            if self.recording:
+                #print "ahoj"
+                self.AppendRow(self.spec)
+
+
+    def AppendRow(self, data):
+        size = self.hdfset.shape
+        self.hdfset.resize((size[0]+1, size[1]))
+        self.hdfset[size[0],:] = data
+        if size[0] % 200 == 0:
+            self.hdffile.flush()
+            print "Flush to file"
+
+    def getTitle(self):
+        return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b>" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type])
+
+    def getSpectrum(self):
+        return self.spec
+
+    def setParameters(self, integration, area, data_type):
+        if area:
+            print "AAAAAAAAAAaa"
+            print area
+            self.obs_area = str(area)
+            self.NewFileToSave()
+        if integration:
+            self.setIntegration(integration)
+        if data_type:
+            self.image_type = data_type
+
+
+    def setIntegration(self, time = None):
+        print "NewIntegrationTime", time
+        if time:
+            self.integr_time = time
+        #self.spectrometer.integration_time_micros(int(self.integr_time*1000))
+        self.setRecording(self.recording)
+
+    def setRecording(self, record = False):
+        print "recording", record
+        self.recording = record
+        if record:
+            self.CreateDataset()
+            self.hdfset.attrs.create('DATE_ROW0', str(datetime.datetime.utcnow()))
+
+    def CreateDataset(self, dataset_name = None):
+        self.hdffile.flush()
+        if not dataset_name:
+            dataset_name = "%04d_%04dms_%s" %(len(self.hdffile), self.integr_time, self.image_types[self.image_type])
+        self.dataset_name = dataset_name
+        print "NewDataset", dataset_name
+        self.hdfset = self.hdffile.create_dataset(dataset_name, maxshape = (None, self.vl_range.shape[0]), shape = (0, self.vl_range.shape[0]), dtype='f', chunks=True)
+        self.hdfset.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
+        self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
+        self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
+        self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
+        #self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
+        #self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
+        self.hdfset.attrs.create('DEVICE_name', str("self.spectrometer.model"))
+        self.hdfset.attrs.create('DEVICE_serial', str("self.spectrometer.serial_number"))
+
+        self.hdfset.attrs.create('OBS_area', str(self.obs_area))
+        self.hdfset.attrs.create('OBS_type', str(self.image_types[self.image_type]))
+        self.hdfset.attrs.create('OBS_coordA', str("aaa"))
+        self.hdfset.attrs.create('OBS_coordB', str("bbb"))
+
+
+        print self.hdfset, self.hdfset.shape
+        return self.hdfset
+
+
+    def NewFileToSave(self, name = None):
+        if not name:
+            name = self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
+        self.hdf_file = name
+        self.hdffile = h5py.File(self.hdf_file, "a")
+        return self.CreateDataset()
+
+
+    def exit(self):
+        self.alive = False
+
+
+class spectrometer(AromNode):
+    node_name = "obs_spectrometer"
+    node_type = "obs_spectrometer"
+    node_pymlab = True
+
+    def __init__(self):
+        print os.path.dirname(os.path.realpath(__file__))
+        print os.getcwd()
+        print __file__
+        print __file__+'.feature.hbs'
+
+        AromNode.__init__(self)
+        node_name = rospy.get_name()
+        self.node_name = node_name
+        print node_name
+
+        self.integr_time = 100
+        self.recording = False
+        self.plot = True
+        self.lastplot = time.time()
+        self.gain = 0
+
+
+        pw = pg.plot(title="Spetral data")
+        self.PrepareSettingsWindow()
+
+        self.SC = SpecCapture(serial = node_name[1:])
+        self.vl_range = self.SC.getVaveLength()
+
+        #self.SC.setHdfset(self.NewFileToSave())
+        self.SC.start()
+
+        #self.pub_iris_pos = rospy.Publisher(node_name+"/iris/position", std_msgs.msg.String, queue_size=1, latch = True)
+        #self.sub_iris_request = rospy.Subscriber("/ui/keyboard/out", std_msgs.msg.String, self.ui_action)
+        #self.set_feature('external',  {'feature': __file__+'.feature.hbs', 'id': 'motor_focus', 'name': 'Motor Ostreni', 'node_name': node_name, 'toppic': node_name+'/motor_focus', 'iris_range': self.conf['iris']['range'], 'focus_range': self.conf['focus']['range']})
+
+        rate = rospy.Rate(50)
+        while not rospy.is_shutdown():
+            rate.sleep()
+            try:
+                spec = self.SC.getSpectrum()
+                if self.recording:
+                    print "row"
+                    self.AppendRow(spec)
+                if self.plot and time.time() > self.lastplot+0.25:
+                    self.lastplot = time.time()
+                    pw.plot(self.vl_range, spec, pen=(100, 20, 20), symbol='x', clear=True)
+                pw.setTitle(self.SC.getTitle())
+                pg.QtGui.QApplication.processEvents()
+
+            except Exception, e:
+                print "err1>", repr(e)
+
+        self.SC.exit()
+
+        #self.hdfset[]
+
+
+    def ExitApp(self):
+        rospy.signal_shutdown("closed by window")
+
+    def PrepareSettingsWindow(self):
+        self.set_window = QtGui.QWidget()
+        self.set_window.setWindowFlags(QtCore.Qt.WindowTitleHint)
+        self.set_window.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
+
+        #self.set_window.resize(250, 150)
+        #self.set_window.move(300, 300)
+        self.set_window.setWindowTitle('Setting')
+        mainLayout = QtGui.QVBoxLayout()
+        self.set_window.setLayout(mainLayout)
+        #self.set_window.closeEvent(self.ExitApp)
+
+        integration = QtGui.QLineEdit(str(100))
+        integration.setValidator(QtGui.QIntValidator())
+        integration.setMaxLength(4)
+
+        sun_area_edit = QtGui.QLineEdit("sun_area")
+
+
+        label = QtGui.QLabel('Integration time')
+
+        comboBox = QtGui.QComboBox()
+        comboBox.addItem("LIGHT")
+        comboBox.addItem("LIGHT_TEST")
+        comboBox.addItem("DARK")
+        comboBox.addItem("BIAS")
+        comboBox.addItem("none")
+
+        recording = QtGui.QCheckBox()
+        recording.setText("recording")
+        recording.setCheckable(True)
+        recording.setChecked(self.recording)
+        recording.toggled.connect(lambda:self.SC.setRecording(recording.isChecked()))
+
+        ploting = QtGui.QCheckBox()
+        ploting.setText("plotting")
+        ploting.setCheckable(True)
+        ploting.setChecked(self.plot)
+        ploting.toggled.connect(lambda:self.setPlotting(ploting.isChecked()))
+
+
+        btn_exit = QtGui.QPushButton('exit')
+        btn_exit.clicked.connect(lambda:self.ExitApp())
+        btn = QtGui.QPushButton('Update parameters')
+        btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
+
+        mainLayout.addWidget(btn_exit)
+        mainLayout.addWidget(QtGui.QLabel("Integration time"))
+        mainLayout.addWidget(integration)
+        mainLayout.addWidget(QtGui.QLabel("Observing name"))
+        mainLayout.addWidget(sun_area_edit)
+        mainLayout.addWidget(QtGui.QLabel("Data type"))
+        mainLayout.addWidget(comboBox)
+        mainLayout.addWidget(btn)
+        mainLayout.addWidget(recording)
+        mainLayout.addWidget(ploting)
+        self.set_window.show()
+
+    def setRecording(self, record = False):
+        print "recording", record
+        self.recording = record
+
+    def setPlotting(self, plot = False):
+        print "plotting", plot
+        self.plot = plot
+
+
+if __name__ == '__main__':
+    m = spectrometer()
