@@ -4,9 +4,11 @@
 import time
 import datetime
 import rospy
+import rosparam
 import std_msgs
 import numpy as np
 import json
+import yaml
 import os, sys
 import h5py
 import pyqtgraph as pg
@@ -29,6 +31,7 @@ class SpecCapture(Thread):
         self.image_types = ['LIGHT', 'LIGHT_TEST', 'DARK', 'BIAS', 'none']
         self.image_type = 0
         self.obs_area = 'sun_area'
+        self.hdffile = None
 
         self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
 
@@ -56,7 +59,6 @@ class SpecCapture(Thread):
                 #print "ahoj"
                 self.AppendRow(self.spec)
 
-
     def AppendRow(self, data):
         size = self.hdfset.shape
         self.hdfset.resize((size[0]+1, size[1]))
@@ -66,17 +68,17 @@ class SpecCapture(Thread):
             print "Flush to file"
 
     def getTitle(self):
-        return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b>" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type])
+        return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b> \t Recording: %s" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type], self.recording)
 
     def getSpectrum(self):
         return self.spec
 
     def setParameters(self, integration, area, data_type):
         if area:
-            print "AAAAAAAAAAaa"
-            print area
-            self.obs_area = str(area)
-            self.NewFileToSave()
+            if area != self.obs_area:
+                print area
+                self.obs_area = str(area)
+                self.NewFileToSave()
         if integration:
             self.setIntegration(integration)
         if data_type:
@@ -122,10 +124,11 @@ class SpecCapture(Thread):
         print self.hdfset, self.hdfset.shape
         return self.hdfset
 
-
     def NewFileToSave(self, name = None):
+        if self.hdffile:
+            self.hdffile.close()
         if not name:
-            name = self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
+            name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
         self.hdf_file = name
         self.hdffile = h5py.File(self.hdf_file, "a")
         return self.CreateDataset()
@@ -146,16 +149,19 @@ class spectrometer(AromNode):
         print __file__
         print __file__+'.feature.hbs'
 
+
         AromNode.__init__(self)
         node_name = rospy.get_name()
         self.node_name = node_name
         print node_name
 
-        self.integr_time = 100
+        self.LoadParamsFromConfig()
+        
+
+        self.integr_time = rospy.get_param(self.node_name+"/spec_inegration", 50)
         self.recording = False
         self.plot = True
         self.lastplot = time.time()
-        self.gain = 0
 
 
         pw = pg.plot(title="Spetral data")
@@ -181,7 +187,8 @@ class spectrometer(AromNode):
                     self.AppendRow(spec)
                 if self.plot and time.time() > self.lastplot+0.25:
                     self.lastplot = time.time()
-                    pw.plot(self.vl_range, spec, pen=(100, 20, 20), symbol='x', clear=True)
+                    #pw.plot(self.vl_range, spec, pen=(100, 20, 20), symbol='x', clear=True)
+                    pw.plot(self.vl_range, spec, pen=(100, 20, 20), clear=True)
                 pw.setTitle(self.SC.getTitle())
                 pg.QtGui.QApplication.processEvents()
 
@@ -191,6 +198,13 @@ class spectrometer(AromNode):
         self.SC.exit()
 
         #self.hdfset[]
+
+    def LoadParamsFromConfig(self):
+        self.yaml_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'config', self.node_name[1:]+".yaml")
+        load_params = rosparam.load_file(self.yaml_config_path, self.node_name)
+        for params, ns in load_params:
+            rosparam.upload_params(ns,params)
+        return load_params
 
 
     def ExitApp(self):
@@ -208,7 +222,7 @@ class spectrometer(AromNode):
         self.set_window.setLayout(mainLayout)
         #self.set_window.closeEvent(self.ExitApp)
 
-        integration = QtGui.QLineEdit(str(100))
+        integration = QtGui.QLineEdit(str(self.integr_time))
         integration.setValidator(QtGui.QIntValidator())
         integration.setMaxLength(4)
 
@@ -223,6 +237,7 @@ class spectrometer(AromNode):
         comboBox.addItem("DARK")
         comboBox.addItem("BIAS")
         comboBox.addItem("none")
+        comboBox.setCurrentIndex(rospy.get_param(self.node_name+"/spec_data_type",0))
 
         recording = QtGui.QCheckBox()
         recording.setText("recording")
@@ -240,7 +255,8 @@ class spectrometer(AromNode):
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
         btn = QtGui.QPushButton('Update parameters')
-        btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
+        btn.clicked.connect(lambda: self.updateFromWindow(integration, sun_area_edit, comboBox))
+        #btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
 
         mainLayout.addWidget(btn_exit)
         mainLayout.addWidget(QtGui.QLabel("Integration time"))
@@ -253,6 +269,21 @@ class spectrometer(AromNode):
         mainLayout.addWidget(recording)
         mainLayout.addWidget(ploting)
         self.set_window.show()
+
+    def updateFromWindow(self, integration, sun_area_edit, comboBox):
+        self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())
+
+        rospy.set_param(self.node_name +"/spec_inegration", float(integration.text()))
+        rospy.set_param(self.node_name +"/spec_data_type", int(comboBox.currentIndex()))
+        #rospy.set_param(self.node_noma +"/spec_name", )
+        rospy.set_param(self.node_name +"/spec_obsarea", str(sun_area_edit.text()) )
+
+
+        #rosparam.dump_params(self.yaml_config_path, self.node_name)
+        #print 
+        with open(self.yaml_config_path, 'w') as f:
+            yaml.dump(rospy.get_param(self.node_name), f, default_flow_style=False)
+
 
     def setRecording(self, record = False):
         print "recording", record
