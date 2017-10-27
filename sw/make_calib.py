@@ -1,3 +1,6 @@
+
+import seabreeze
+seabreeze.use("pyseabreeze")
 import seabreeze.spectrometers as sb
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,7 +9,7 @@ from astropy.io import fits
 plt.ion() 
 print sb.list_devices()
 spec = sb.Spectrometer.from_serial_number()
-spec.integration_time_micros(100000)
+spec.integration_time_micros(10000000)
 wl =  spec.wavelengths()
 
 print spec.serial_number

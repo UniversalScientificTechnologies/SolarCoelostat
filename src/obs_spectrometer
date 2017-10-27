@@ -16,12 +16,16 @@ from PyQt4 import QtGui
 from PyQt4 import QtCore
 from threading import Thread
 
+import seabreeze
+seabreeze.use("pyseabreeze")
+import seabreeze.spectrometers as sb
+
 
 from arom_helper import AromNode
 
 
 class SpecCapture(Thread):
-    def __init__(self, integr_time = 100, serial = "device"):
+    def __init__(self, integr_time = 100, device = None, serial = 'serial'):
 
         Thread.__init__(self)
         self.serial = serial 
@@ -33,31 +37,38 @@ class SpecCapture(Thread):
         self.obs_area = 'sun_area'
         self.hdffile = None
 
-        self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
+        #self.spectrometer = sb.Spectrometer(devices[0])
+        self.spectrometer = sb.Spectrometer(device)
+        print device
+        self.spectrometer.integration_time_micros(100000)
+        self.vl_range =  self.spectrometer.wavelengths()
+
+        #self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
 
         #self.spectrometer = sb.Spectrometer.from_serial_number()
         self.NewFileToSave()
         self.setIntegration()
         #self.vl_range =  self.spectrometer.wavelengths()
 
-        #print self.spectrometer.serial_number
-        #print self.spectrometer.model
-        #print self.spectrometer.pixels
-
+        self.serial = self.spectrometer.serial_number
+        print self.spectrometer.serial_number
+        print self.spectrometer.model
+        print self.spectrometer.pixels
 
     def getVaveLength(self):
         return self.vl_range
-
  
     def run(self):
         while self.alive:
-            time.sleep(self.integr_time/1000.0)
-            self.spec = np.random.random(self.vl_range.shape[0])*2**16
+            self.spec  = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
+            print self.spec
+            #self.spec = np.random.random(self.vl_range.shape[0])*2**16
             #self.spec = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
             
             if self.recording:
                 #print "ahoj"
                 self.AppendRow(self.spec)
+        self.spectrometer.close()
 
     def AppendRow(self, data):
         size = self.hdfset.shape
@@ -89,7 +100,7 @@ class SpecCapture(Thread):
         print "NewIntegrationTime", time
         if time:
             self.integr_time = time
-        #self.spectrometer.integration_time_micros(int(self.integr_time*1000))
+        self.spectrometer.integration_time_micros(int(self.integr_time*1000))
         self.setRecording(self.recording)
 
     def setRecording(self, record = False):
@@ -128,7 +139,10 @@ class SpecCapture(Thread):
         if self.hdffile:
             self.hdffile.close()
         if not name:
-            name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
+
+            name = os.path.join("/home/roman/", "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
+        
+            #name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
         self.hdf_file = name
         self.hdffile = h5py.File(self.hdf_file, "a")
         return self.CreateDataset()
@@ -136,6 +150,7 @@ class SpecCapture(Thread):
 
     def exit(self):
         self.alive = False
+        #self.spectrometer.close()
 
 
 class spectrometer(AromNode):
@@ -158,20 +173,31 @@ class spectrometer(AromNode):
         self.LoadParamsFromConfig()
         
 
-        self.integr_time = rospy.get_param(self.node_name+"/spec_inegration", 50)
+        self.integr1_time = rospy.get_param(self.node_name+"/spec1_inegration", 50)
+        self.integr2_time = rospy.get_param(self.node_name+"/spec2_inegration", 50)
         self.recording = False
+        self.recording1 = False
+        self.recording2 = False
         self.plot = True
         self.lastplot = time.time()
 
 
         pw = pg.plot(title="Spetral data")
+        pw2 = pg.plot(title="Spetral2 data")
         self.PrepareSettingsWindow()
 
-        self.SC = SpecCapture(serial = node_name[1:])
-        self.vl_range = self.SC.getVaveLength()
+
+        devices = sb.list_devices()
+        print devices
+
+        self.SC1 = SpecCapture(serial = node_name[1:], device= devices[0])
+        self.SC2 = SpecCapture(serial = node_name[1:], device= devices[1])
+        self.vl1_range = self.SC1.getVaveLength()
+        self.vl2_range = self.SC2.getVaveLength()
 
         #self.SC.setHdfset(self.NewFileToSave())
-        self.SC.start()
+        self.SC1.start()
+        self.SC2.start()
 
         #self.pub_iris_pos = rospy.Publisher(node_name+"/iris/position", std_msgs.msg.String, queue_size=1, latch = True)
         #self.sub_iris_request = rospy.Subscriber("/ui/keyboard/out", std_msgs.msg.String, self.ui_action)
@@ -181,21 +207,25 @@ class spectrometer(AromNode):
         while not rospy.is_shutdown():
             rate.sleep()
             try:
-                spec = self.SC.getSpectrum()
+                spec1 = self.SC1.getSpectrum()
+                spec2 = self.SC2.getSpectrum()
                 if self.recording:
                     print "row"
                     self.AppendRow(spec)
                 if self.plot and time.time() > self.lastplot+0.25:
                     self.lastplot = time.time()
                     #pw.plot(self.vl_range, spec, pen=(100, 20, 20), symbol='x', clear=True)
-                    pw.plot(self.vl_range, spec, pen=(100, 20, 20), clear=True)
-                pw.setTitle(self.SC.getTitle())
+                    pw.plot(self.vl1_range, spec1, pen=(100, 20, 20), clear=True)
+                    pw2.plot(self.vl2_range, spec2, pen=(100, 20, 20), clear=True)
+                pw.setTitle(self.SC1.getTitle())
+                pw2.setTitle(self.SC2.getTitle())
                 pg.QtGui.QApplication.processEvents()
 
             except Exception, e:
                 print "err1>", repr(e)
 
-        self.SC.exit()
+        self.SC1.exit()
+        self.SC2.exit()
 
         #self.hdfset[]
 
@@ -208,6 +238,8 @@ class spectrometer(AromNode):
 
 
     def ExitApp(self):
+        print "Zacinam se ukoncovat"
+        
         rospy.signal_shutdown("closed by window")
 
     def PrepareSettingsWindow(self):
@@ -222,9 +254,13 @@ class spectrometer(AromNode):
         self.set_window.setLayout(mainLayout)
         #self.set_window.closeEvent(self.ExitApp)
 
-        integration = QtGui.QLineEdit(str(self.integr_time))
-        integration.setValidator(QtGui.QIntValidator())
-        integration.setMaxLength(4)
+        integration1 = QtGui.QLineEdit(str(self.integr1_time))
+        integration1.setValidator(QtGui.QIntValidator())
+        integration1.setMaxLength(4)
+
+        integration2 = QtGui.QLineEdit(str(self.integr2_time))
+        integration2.setValidator(QtGui.QIntValidator())
+        integration2.setMaxLength(4)
 
         sun_area_edit = QtGui.QLineEdit("sun_area")
 
@@ -243,7 +279,7 @@ class spectrometer(AromNode):
         recording.setText("recording")
         recording.setCheckable(True)
         recording.setChecked(self.recording)
-        recording.toggled.connect(lambda:self.SC.setRecording(recording.isChecked()))
+        recording.toggled.connect(lambda:self.SC1.setRecording(recording.isChecked()))
 
         ploting = QtGui.QCheckBox()
         ploting.setText("plotting")
@@ -255,9 +291,23 @@ class spectrometer(AromNode):
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
         btn = QtGui.QPushButton('Update parameters')
-        btn.clicked.connect(lambda: self.updateFromWindow(integration, sun_area_edit, comboBox))
+        btn.clicked.connect(lambda: self.updateFromWindow(integration1, integration2, sun_area_edit, comboBox))
         #btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
 
+        mainLayout.addWidget(btn_exit)
+        mainLayout.addWidget(QtGui.QLabel("Integration s1 time"))
+        mainLayout.addWidget(integration1)
+        mainLayout.addWidget(QtGui.QLabel("Integration s2 time"))
+        mainLayout.addWidget(integration2)
+        mainLayout.addWidget(QtGui.QLabel("Observing name"))
+        mainLayout.addWidget(sun_area_edit)
+        mainLayout.addWidget(QtGui.QLabel("Data type"))
+        mainLayout.addWidget(comboBox)
+        mainLayout.addWidget(btn)
+        mainLayout.addWidget(recording)
+        mainLayout.addWidget(ploting)
+
+        '''
         mainLayout.addWidget(btn_exit)
         mainLayout.addWidget(QtGui.QLabel("Integration time"))
         mainLayout.addWidget(integration)
@@ -268,12 +318,15 @@ class spectrometer(AromNode):
         mainLayout.addWidget(btn)
         mainLayout.addWidget(recording)
         mainLayout.addWidget(ploting)
+        '''
         self.set_window.show()
 
-    def updateFromWindow(self, integration, sun_area_edit, comboBox):
-        self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())
+    def updateFromWindow(self, integration1, integration2, sun_area_edit, comboBox):
+        self.SC1.setParameters(float(integration1.text()), sun_area_edit.text(), comboBox.currentIndex())
+        self.SC2.setParameters(float(integration2.text()), sun_area_edit.text(), comboBox.currentIndex())
 
-        rospy.set_param(self.node_name +"/spec_inegration", float(integration.text()))
+        rospy.set_param(self.node_name +"/spec1_inegration", float(integration1.text()))
+        rospy.set_param(self.node_name +"/spec2_inegration", float(integration2.text()))
         rospy.set_param(self.node_name +"/spec_data_type", int(comboBox.currentIndex()))
         #rospy.set_param(self.node_noma +"/spec_name", )
         rospy.set_param(self.node_name +"/spec_obsarea", str(sun_area_edit.text()) )

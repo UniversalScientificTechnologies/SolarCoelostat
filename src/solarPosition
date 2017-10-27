@@ -14,7 +14,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from PyQt4 import QtGui
 from PyQt4 import QtCore
 from threading import Thread
-
+import ids
 import numpy as np
 import cv2
 #from __init__ import AromNode
@@ -49,16 +49,21 @@ class sunpos(AromNode):
         self.prepareSettingsWindow()
     
 
+        cam = ids.Camera()
+        #cam.color_mode = ids.ids_core.COLOR_RGB8    # Get images in RGB format
+        cam.exposure = 500                            # Set initial exposure to 5ms
+        cam.auto_exposure = False
+        cam.continuous_capture = True  
 
-
-        cv2.namedWindow('plot')
+        cv2.namedWindow('plot', cv2.WINDOW_NORMAL)
         cv2.setMouseCallback("plot", self.onMouse)
 
-        cap = cv2.VideoCapture(rospy.get_param(self.node_name+'/camera', 0))
-        frame_counter = 0
-        cap.set(cv2.CAP_PROP_BRIGHTNESS,-100)
-        cap.set(cv2.CAP_PROP_CONTRAST,25)
-        self.center = (int(cap.get(3)/2), int(cap.get(4)/2)) # ziskat sirku a vysku obrazku
+        #cap = cv2.VideoCapture(0)
+        #frame_counter = 0
+        #cap.set(cv2.CAP_PROP_BRIGHTNESS,-100)
+        #cap.set(cv2.CAP_PROP_CONTRAST,25)
+        #self.center = (int(cap.get(3)/2), int(cap.get(4)/2)) # ziskat sirku a vysku obrazku
+        self.center= (100,100)
         (centerx, centery) = self.center
         self.sun_center = None
         self.target = self.center
@@ -81,20 +86,15 @@ class sunpos(AromNode):
             try:
                 QtGui.QApplication.processEvents()
 
-                ## 
-                ##  !!!!! remove for camera 
-                ##
+                #ret, frame = cap.read()
+                img, meta = cam.next()
+                print meta
+                print img
+                frame = img
 
-                frame_counter += 1
-                if frame_counter > cap.get(cv2.CAP_PROP_FRAME_COUNT):
-                    print "ERRRRRRRRRRRRRRRRRRRRR"
-                    #frame_counter = 0
-                    #cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    #
-                    cap = cv2.VideoCapture(rospy.get_param(self.node_name+'/camera', 0))
-                    frame_counter = 0
+                cv2.imshow("plot", frame)
 
-                ret, frame = cap.read()
+                #frame = cv2.fromarray(img)
                 #cv2.imshow('frame', frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
@@ -156,22 +156,21 @@ class sunpos(AromNode):
                             self.ui_label_cam_coord.setText("X:%3.3f; Y:%3.3f<br>X:%3.3f Y:%3.3f<br>rotace: %s<br>SunLat: %s<br>SunLon: %s" 
                                 %(cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90))
 
+                    self.pub_error.publish(x = centerx - cx-offx, y = centery - cy-offy)
+                    self.pub_pos.publish(x = cx, y = cy)
+                    angle_y = math.tan(self.sun_WE_angle*math.pi/180)
+                    length = 1000
+                    cv2.line(frame, (int(centerx-1*length), int(centery+angle_y*length)), (int(centerx+1*length), int(centery-angle_y*length)), (80, 80, 80), 1)
+
+                    #print math.sqrt(area/math.pi)
+                    cv2.circle(frame, self.sun_center, diameter/2, (200, 200, 10), 2)
+                    cv2.circle(frame, self.center, 5, (200, 200, 10), 2)
+                    cv2.circle(frame, self.target, 5, (255, 10, 10), 3)
+                    cv2.putText(frame,'status: '+str(self.status),(10,20), cv2.FONT_HERSHEY_DUPLEX, 0.5,(120,120,120))
+       
                 except Exception as e:
-                    print(e)
-
-                self.pub_error.publish(x = centerx - cx-offx, y = centery - cy-offy)
-                self.pub_pos.publish(x = cx, y = cy)
-                angle_y = math.tan(self.sun_WE_angle*math.pi/180)
-                length = 1000
-                cv2.line(frame, (int(centerx-1*length), int(centery+angle_y*length)), (int(centerx+1*length), int(centery-angle_y*length)), (80, 80, 80), 1)
-
-                #print math.sqrt(area/math.pi)
-                cv2.circle(frame, self.sun_center, diameter/2, (200, 200, 10), 2)
-                cv2.circle(frame, self.center, 5, (200, 200, 10), 2)
-                cv2.circle(frame, self.target, 5, (255, 10, 10), 3)
-                cv2.putText(frame,'status: '+str(self.status),(10,20), cv2.FONT_HERSHEY_DUPLEX, 0.5,(120,120,120))
-   
-                cv2.imshow("plot", frame)
+                    print("chyba", e)
+                                
                 self.image_pub2.publish(self.bridge.cv2_to_imgmsg(thresh, "mono8"))
                 self.image_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
 
