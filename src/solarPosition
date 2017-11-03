@@ -19,6 +19,7 @@ import numpy as np
 import cv2
 #from __init__ import AromNode
 from arom_helper import AromNode
+import yaml
 
 
 # http://jgiesen.de/sunrot/index.html
@@ -49,11 +50,12 @@ class sunpos(AromNode):
         self.prepareSettingsWindow()
     
 
-        cam = ids.Camera()
-        #cam.color_mode = ids.ids_core.COLOR_RGB8    # Get images in RGB format
-        cam.exposure = 500                            # Set initial exposure to 5ms
-        cam.auto_exposure = False
-        cam.continuous_capture = True  
+        self.cam = ids.Camera()
+        #self.cam.color_mode = ids.ids_core.COLOR_RGB8    # Get images in RGB format
+        self.cam.exposure = 500                            # Set initial exposure to 5ms
+        self.cam.auto_exposure = False
+        self.cam.continuous_capture = True  
+        img, meta = self.cam.next()
 
         cv2.namedWindow('plot', cv2.WINDOW_NORMAL)
         cv2.setMouseCallback("plot", self.onMouse)
@@ -63,8 +65,10 @@ class sunpos(AromNode):
         #cap.set(cv2.CAP_PROP_BRIGHTNESS,-100)
         #cap.set(cv2.CAP_PROP_CONTRAST,25)
         #self.center = (int(cap.get(3)/2), int(cap.get(4)/2)) # ziskat sirku a vysku obrazku
-        self.center= (100,100)
+        self.center= (meta['width']/2,meta['height']/2)
         (centerx, centery) = self.center
+        (cx, cy) = self.center
+        diameter = 0
         self.sun_center = None
         self.target = self.center
         self.status = 0
@@ -87,12 +91,10 @@ class sunpos(AromNode):
                 QtGui.QApplication.processEvents()
 
                 #ret, frame = cap.read()
-                img, meta = cam.next()
-                print meta
-                print img
+                img, meta = self.cam.next()
+                #print meta
                 frame = img
 
-                cv2.imshow("plot", frame)
 
                 #frame = cv2.fromarray(img)
                 #cv2.imshow('frame', frame)
@@ -104,8 +106,8 @@ class sunpos(AromNode):
                 #cv2.imshow('gray',gray)
                 #cv2.imshow('tresh',thresh)
                 contours = cv2.findContours(thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)                
-                #contours, hierarchy = contours
-                img, contours, hierarchy = contours
+                contours, hierarchy = contours
+                #img, contours, hierarchy = contours
                 cv2.drawContours(frame, contours, -1, (0,255,0), 3)
                 (offx, offy) = self.target
 
@@ -170,6 +172,8 @@ class sunpos(AromNode):
        
                 except Exception as e:
                     print("chyba", e)
+
+                cv2.imshow("plot", frame)
                                 
                 self.image_pub2.publish(self.bridge.cv2_to_imgmsg(thresh, "mono8"))
                 self.image_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
@@ -286,7 +290,7 @@ class sunpos(AromNode):
         self.set_window.show()
 
     def updateFromWindow(self, integration, sun_area_edit, comboBox):
-        self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())
+        self.cam.exposure = int(float(integration.text())*100)
 
         rospy.set_param(self.node_name +"/spec_inegration", float(integration.text()))
         rospy.set_param(self.node_name +"/spec_data_type", int(comboBox.currentIndex()))

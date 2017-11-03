@@ -1,0 +1,9 @@
+#!/bin/bash
+
+source ~/.bashrc
+source /opt/ros/kinetic/setup.bash
+source /home/roman/arom_ws/devel/setup.bash
+roscore &
+until rostopic list; do sleep 0.2; done
+rosrun solar_coelostat obs_spectrometer
+

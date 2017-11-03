@@ -1,0 +1,10 @@
+#!/bin/bash
+
+source ~/.bashrc
+source /opt/ros/kinetic/setup.bash
+source /home/roman/arom_ws/devel/setup.bash
+roscore &
+#ueyecameramanager &
+until rostopic list; do sleep 0.2; done
+rosrun solar_coelostat solarPosition
+

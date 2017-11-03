@@ -1,0 +1,8 @@
+#!/bin/bash
+
+source ~/.bashrc
+source /opt/ros/kinetic/setup.bash
+source /home/roman/arom_ws/devel/setup.bash
+
+roscore &
+
