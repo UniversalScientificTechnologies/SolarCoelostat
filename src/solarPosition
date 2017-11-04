@@ -52,7 +52,7 @@ class sunpos(AromNode):
 
         self.cam = ids.Camera()
         #self.cam.color_mode = ids.ids_core.COLOR_RGB8    # Get images in RGB format
-        self.cam.exposure = 500                            # Set initial exposure to 5ms
+        self.cam.exposure = 2                            # Set initial exposure to 5ms
         self.cam.auto_exposure = False
         self.cam.continuous_capture = True  
         img, meta = self.cam.next()
@@ -290,7 +290,7 @@ class sunpos(AromNode):
         self.set_window.show()
 
     def updateFromWindow(self, integration, sun_area_edit, comboBox):
-        self.cam.exposure = int(float(integration.text())*100)
+        self.cam.exposure = float(integration.text())
 
         rospy.set_param(self.node_name +"/spec_inegration", float(integration.text()))
         rospy.set_param(self.node_name +"/spec_data_type", int(comboBox.currentIndex()))
