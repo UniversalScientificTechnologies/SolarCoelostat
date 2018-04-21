@@ -27,7 +27,7 @@ class SpecCapture(Thread):
     def __init__(self, integr_time = 100, device = None, serial = 'serial'):
 
         Thread.__init__(self)
-        self.serial = serial 
+        self.serial = serial
         self.integr_time = integr_time
         self.alive = True
         self.recording = True
@@ -35,7 +35,7 @@ class SpecCapture(Thread):
         self.image_type = 0
         self.obs_area = 'sun_area'
         self.hdffile = None
-        
+
         asi.init('/home/roman/ASI_linux_mac_SDK/lib/x64/libASICamera2.so')
         self.camera = asi.Camera(0)
         camera_info = self.camera.get_camera_property()
@@ -55,7 +55,7 @@ class SpecCapture(Thread):
         self.camera.set_control_value(asi.ASI_FLIP, 0)
 
         controls = self.camera.get_controls()
-        
+
         print controls
         for cn in sorted(controls.keys()):
             print('    %s:' % cn)
@@ -70,11 +70,12 @@ class SpecCapture(Thread):
 
     def getfilename(self):
         return  os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area, "SlitJaw") + "/" + self.obs_area + datetime.datetime.utcnow().strftime("_%Y-%m-%d_%h%m%s" + ".tif")
-        
 
- 
+
+
     def run(self):
         cv2.namedWindow('SlitJaw', cv2.WINDOW_NORMAL)
+        self.NewFileToSave()
         while self.alive:
             if self.recording:
                 print "ahoj"
@@ -131,43 +132,43 @@ class SpecCapture(Thread):
 
     def CreateDataset(self, dataset_name = None):
         pass
-        '''
-        self.hdffile.flush()
-        if not dataset_name:
-            dataset_name = "%04d_%04dms_%s" %(len(self.hdffile), self.integr_time, self.image_types[self.image_type])
-        self.dataset_name = dataset_name
-        print "NewDataset", dataset_name
-        self.hdfset = self.hdffile.create_dataset(dataset_name, maxshape = (None, self.vl_range.shape[0]), shape = (0, self.vl_range.shape[0]), dtype='f', chunks=True)
-        self.hdfset.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
-        self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
-        self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
-        self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
-        #self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
-        #self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
-        self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
-        self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
 
-        self.hdfset.attrs.create('OBS_area', str(self.obs_area))
-        self.hdfset.attrs.create('OBS_type', str(self.image_types[self.image_type]))
-        self.hdfset.attrs.create('OBS_coordA', str("aaa"))
-        self.hdfset.attrs.create('OBS_coordB', str("bbb"))
+        # self.hdffile.flush()
+        # if not dataset_name:
+        #     dataset_name = "%04d_%04dms_%s" %(len(self.hdffile), self.integr_time, self.image_types[self.image_type])
+        # self.dataset_name = dataset_name
+        # print "NewDataset", dataset_name
+        # self.hdfset = self.hdffile.create_dataset(dataset_name, maxshape = (None, self.vl_range.shape[0]), shape = (0, self.vl_range.shape[0]), dtype='f', chunks=True)
+        # self.hdfset.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
+        # self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
+        # self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
+        # self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
+        # #self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
+        # #self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
+        # self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
+        # self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
+        #
+        # self.hdfset.attrs.create('OBS_area', str(self.obs_area))
+        # self.hdfset.attrs.create('OBS_type', str(self.image_types[self.image_type]))
+        # self.hdfset.attrs.create('OBS_coordA', str("aaa"))
+        # self.hdfset.attrs.create('OBS_coordB', str("bbb"))
+        #
+        # print self.hdfset, self.hdfset.shape
 
-        print self.hdfset, self.hdfset.shape
-        '''
         #return self.hdfset
 
     def NewFileToSave(self, name = None):
         if self.hdffile:
             self.hdffile.close()
         if not name:
+            directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area, "SlitJaw")
+            if not os.path.exists(directory):
+                os.makedirs(directory)
+            name = directory + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + ".hdf")
 
-            #name = os.path.join("/home/roman/", "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
-            
-            name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area, "SlitJaw") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + ".hdf")
-        
         directory = os.path.dirname(name)
         if not os.path.exists(directory):
-            os.makedirs(directory)      
+            os.makedirs(directory)
 
             #name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
         self.hdf_file = name
@@ -203,7 +204,7 @@ class spectrometer(AromNode):
 
         app = QtGui.QApplication(sys.argv)
         self.prepareSettingsWindow()
-        
+
 
         self.integr_time = rospy.get_param(self.node_name+"/cam_inegration", 50)
         self.recording = True
@@ -226,7 +227,7 @@ class spectrometer(AromNode):
                     #print "row"
                 #if self.plot and time.time() > self.lastplot+0.25:
                 #    self.lastplot = time.time()
-                    
+
 
             except Exception, e:
                 print "err1>", repr(e)
@@ -245,7 +246,7 @@ class spectrometer(AromNode):
 
     def ExitApp(self):
         print "Zacinam se ukoncovat"
-        
+
         rospy.signal_shutdown("closed by window")
 
     def prepareSettingsWindow(self):
@@ -320,7 +321,7 @@ class spectrometer(AromNode):
 
 
         #rosparam.dump_params(self.yaml_config_path, self.node_name)
-        #print 
+        #print
         with open(self.yaml_config_path, 'w') as f:
             yaml.dump(rospy.get_param(self.node_name), f, default_flow_style=False)
 
