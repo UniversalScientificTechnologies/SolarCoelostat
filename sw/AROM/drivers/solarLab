@@ -1,6 +1,13 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+
+#
+#  Tento kod slouzi k ovladanic hardwaru slunecniho coelostatu slunecni laboratore na observatori v Ondrejove
+# 
+#
+
+
 import __init__
 import math
 import time
@@ -14,6 +21,7 @@ import arom
 import axis
 import json
 import os
+import zmq
 #from __init__ import AromNode
 from arom_tools import AromNode
 
@@ -49,7 +57,7 @@ class SolarLab(AromNode):
         self.motor_b_status = ""
         self.motor_c_status = ""
         spdAold, spdBold = 0, 0
-        rospy.set_param("/coelostat/speeds/tracking", 32.88)
+        rospy.set_param("/coelostat/speeds/tracking", 32.86)
         self.trackingSpdDefault = rospy.get_param("/coelostat/speeds/tracking")
         self.trackingSpd = self.trackingSpdDefault
         self.sunpos = None
@@ -62,7 +70,7 @@ class SolarLab(AromNode):
         self.pub_imagetarget = rospy.Publisher("/image_target", Point, queue_size=1)
         self.pub_imagecommand= rospy.Publisher("/image_command", std_msgs.msg.String, queue_size=5)
         self.pub_beep = rospy.Publisher('/beeper/preset', std_msgs.msg.String, queue_size=5)
-        self.pub_lcd  = rospy.Publisher('/arom/node/lcd_client/rows', std_msgs.msg.String, queue_size=2)
+        self.pub_lcd  = rospy.Publisher('/arom/node/lcd_client/rows', std_msgs.msg.String, queue_size=2, latch = True)
 
 
         self.pub_motor_a = rospy.Publisher("/coleostat/motor_a", std_msgs.msg.String, queue_size=1)
@@ -70,6 +78,22 @@ class SolarLab(AromNode):
         self.pub_motor_c = rospy.Publisher("/coleostat/motor_c", std_msgs.msg.String, queue_size=1)
 
         #rospy.Subscriber("sun_pos", geometry_msgs.msg.Point, self.callback_sunpos)
+
+        # connection = pika.SelectConnection(on_open_callback=on_open)
+        #
+        # connection = pika.BlockingConnection(pika.ConnectionParameters(host='localhost'))
+        # channel = connection.channel()
+        #
+        #
+        # channel.queue_declare(queue='tracking')
+        # channel.basic_consume(self.rabbit_tracking,
+        #               queue='tracking',
+        #               no_ack=False)
+        # channel.start_consuming()
+        port = "5556"
+        context = zmq.Context()
+        socket = context.socket(zmq.PAIR)
+        socket.bind("tcp://*:%s" % port)
 
 
         AromNode.__init__(self)
@@ -82,7 +106,7 @@ class SolarLab(AromNode):
                 time.sleep(5)
             else:
               break
-              
+
         #self.pymlab = rospy.ServiceProxy('pymlab_drive', arom.srv.PymlabDrive)
         #rospy.set_param('/arom/node'+rospy.get_name()+"/pymlab", True)
         #self.set_feature('gpio_set_port',{'ports': 8, 'devices': str(self.devices0) ,'subscrib': '/gpio/gpio_mount'})
@@ -94,7 +118,7 @@ class SolarLab(AromNode):
         self.set_feature('hsfa_speed',{'param': '/coelostat/speeds/tracking'})
 
         #self.pymlab(device="gpio_mount", method="config_ports", parameters=str(dict(port0 = self.config0, port1 = self.config1)))
-        
+
         #status_timer = rospy.Timer(rospy.Duration(1), , oneshot=False)
 
         self.motor_a = axis.axis(SPI = self.pymlab, SPI_CS = 0b0001, Direction = True, StepsPerUnit = 1, protocol = 'arom', arom_spi_name = 'mirrorRADEC')
@@ -105,8 +129,10 @@ class SolarLab(AromNode):
         #self.motor_b.Reset(KVAL_RUN = 0x19, KVAL_ACC = 0x49, KVAL_DEC = 0x49, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
         #self.motor_c.Reset(KVAL_RUN = 0x29, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b011) #time motor
 
-        self.motor_a.Reset(KVAL_RUN = 0x20, KVAL_ACC = 0x49, KVAL_DEC = 0x49, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
-        self.motor_b.Reset(KVAL_RUN = 0x15, KVAL_ACC = 0x29, KVAL_DEC = 0x29, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
+        self.motor_a.Reset(KVAL_RUN = 0x26, KVAL_ACC = 0x45, KVAL_DEC = 0x45, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
+        #self.motor_b.Reset(KVAL_RUN = 0x20, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
+        #self.motor_a.Reset(KVAL_RUN = 0x20, KVAL_ACC = 0x40, KVAL_DEC = 0x40, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
+        self.motor_b.Reset(KVAL_RUN = 0x25, KVAL_ACC = 0x40, KVAL_DEC = 0x40, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
         self.motor_c.Reset(KVAL_RUN = 0x29, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b011) #time motor
 
         #nahoru dolu
@@ -123,11 +149,11 @@ class SolarLab(AromNode):
         self.direction = 1
 
         self.motor_a.MaxSpeed(150)
-        self.motor_a.MaxSpeed(150)
+        #self.motor_a.MaxSpeed(150)
         #self.motor_a.MinSpeed(20)
 
         self.motor_b.MaxSpeed(190)  #leva prava
-        self.motor_b.MaxSpeed(190)  #leva prava
+        #self.motor_b.MaxSpeed(190)  #leva prava
         #self.motor_b.MinSpeed(20)
 
         self.motor_c.MaxSpeed(0x33ff)
@@ -144,13 +170,127 @@ class SolarLab(AromNode):
         rate = rospy.Rate(10)
         self.pub_beep.publish('welcome')
         self.pub_lcd.publish("Welcome...    OK\nAROM    MLAB.cz")
-        
+
         while not rospy.is_shutdown():
             try:
                 self.get_status()
 
+                try:
+                    msg = socket.recv(flags=zmq.NOBLOCK)
+                    print("OBTAINED MSG")
+                    print(msg)
+                except Exception as e:
+                    msg = None
+
+                if msg:
+                    if 'timer;' in msg:
+                        if msg.split(';')[1] == '0':
+                            print("STOP")
+                            self.flag['tracking']= False
+                            self.motor_c.Float()
+
+                        elif msg.split(';')[1] == '1':
+                            print("START")
+                            self.flag['tracking']= True
+                            self.motor_c.Run(0, self.trackingSpd*self.direction)
+
+                        elif msg.split(';')[1] == '2':
+                            print("START only")
+                            self.flag['tracking']= True
+                            self.speedA, self.speedB = 0, 0
+                            self.motor_c.Run(0, self.trackingSpd*self.direction)
+                            self.motor_a.Float()
+                            self.motor_b.Float()
+
+                    elif 'moveA;' in msg:
+                        if msg.split(';')[1] == '0':
+                            print("STOP")
+                            self.flag['tracking']= True
+                            self.motor_a.Float()
+
+                        elif msg.split(';')[1] == '1':
+                            print("START")
+                            self.speedA = 20
+                            self.motor_a.Run(0, self.speedA)
+
+                        elif msg.split(';')[1] == '-1':
+                            print("START")
+                            self.speedA = -20
+                            self.motor_a.Run(0, self.speedA)
+
+                    elif 'moveB;' in msg:
+                        if msg.split(';')[1] == '0':
+                            print("STOP")
+                            self.flag['tracking']= True
+                            self.motor_b.Float()
+
+                        elif msg.split(';')[1] == '1':
+                            print("START")
+                            self.speedA = 20
+                            self.motor_b.Run(0, self.speedA)
+
+                        elif msg.split(';')[1] == '-1':
+                            print("START")
+                            self.speedA = -20
+                            self.motor_b.Run(0, self.speedA)
+
+                    elif 'chyba;' in msg and not self.bump:
+                        err = msg.split(';')
+                        if err[1] == '1':
+                            if self.flag['assisted'] == False:
+                                self.flag['assisted'] = True
+                                self.pub_lcd.publish("Asistence zapnuta \n Asist: %s" %(repr(self.flag['assisted'])))
+
+                            self.flag['assisted_last'] = time.time()
+                            errx = float(err[2])
+                            erry = float(err[3])
+                            print("Chyba pozice na kamere - pohyb na {}px, {}px".format(errx, erry))
+
+                            max_err = 7
+
+                            if errx < max_err and errx > -max_err:
+                                self.motor_b.Float()
+                            elif errx > 50:
+                                self.motor_a.Run(0, 30)
+                            elif errx > 30:
+                                self.motor_a.Run(0, 20)
+                            elif errx > 0:
+                                self.motor_a.Run(0, 5)
+                            elif errx < 50:
+                                self.motor_a.Run(1, 30)
+                            elif errx < 30:
+                                self.motor_a.Run(1, 20)
+                            elif errx < 0:
+                                self.motor_a.Run(1, 5)
+
+                            if erry < max_err and erry > -max_err:
+                                self.motor_b.Float()
+                            elif erry > 50:
+                                self.motor_b.Run(0, 20)
+                            elif erry > 30:
+                                self.motor_b.Run(0, 10)
+                            elif erry > 0:
+                                self.motor_b.Run(0, 5)
+                            elif erry < 50:
+                                self.motor_b.Run(1, 20)
+                            elif erry < 30:
+                                self.motor_b.Run(1, 10)
+                            elif erry < 0:
+                                self.motor_b.Run(1, 5)
+                            print("Asist")
+
+                        elif err[1] == '0':
+                            if self.flag['assisted'] == True:
+                                self.flag['assisted'] = False
+                                self.pub_lcd.publish("Asistence pozdržena \n Asist: %s" %(repr(self.flag['assisted'])))
+                                self.motor_b.Float()
+                                self.motor_a.Float()
+                                self.flag['tracking']= True
+                                self.speedA, self.speedB = 0, 0
+                                self.motor_c.Run(0, self.trackingSpd*self.direction)
+
+
                 if len(self.btn_data) > 0:
-                    print self.btn_data[0], len(self.btn_data)
                     lastBtn = self.btn_data[0]
                     last_data = lastBtn.split(" ")
                     self.btn_data.pop(0)
@@ -206,17 +346,7 @@ class SolarLab(AromNode):
 
 
                     elif last_data[0] == 'KEY_VOLUMEDOWN':
-
                         self.pub_imagecommand.publish("hold")
-
-                        #self.direction *= -1
-                        #if self.direction > 0:
-                        #    self.pub_lcd.publish("Zmena smeru \n Smer A %s" %(self.trackingSpd*self.direction))
-                        #else:
-                        #    self.pub_lcd.publish("Zmena smeru \n Smer B %s" %(self.trackingSpd*self.direction))
-
-                        #self.motor_c.Run(0, self.trackingSpd*self.direction)
-
 
                     elif last_data[0] == 'KEY_OK':
                         self.trackingSpd = float(rospy.get_param("/coelostat/speeds/tracking"))
@@ -247,7 +377,6 @@ class SolarLab(AromNode):
                         #self.speedB = 0
                         #self.speedC = 0
 
-
                         #self.motor_a.Reset(KVAL_RUN = 0x75, KVAL_ACC = 0xFF, KVAL_DEC = 0xFF, FS_SPD = 0xFFFFFF, init=False)
                         #self.motor_b.Reset(KVAL_RUN = 0x75, KVAL_ACC = 0xFF, KVAL_DEC = 0xFF, FS_SPD = 0xFFFFFF, init=False)
                         #self.motor_c.Reset(KVAL_RUN = 0x75, KVAL_ACC = 0xFF, KVAL_DEC = 0xFF, FS_SPD = 0xFFFFFF, init=False)
@@ -271,9 +400,7 @@ class SolarLab(AromNode):
 
                     elif last_data[0] == 'KEY_BACK': # BACK - vyresetuje nastavení, vycentruje obraz na střed
 
-
                         self.calibration = True
-                        self.trackingSpdDefault = float(rospy.get_param("/coelostat/speeds/tracking"))
                         self.trackingSpd = self.trackingSpdDefault*self.direction
                         self.bump = False
                         self.motor_a.Float()
@@ -281,38 +408,61 @@ class SolarLab(AromNode):
                         self.motor_c.Float()
 
 
-                        self.motor_a.MaxSpeed(150)
-                        self.motor_b.MaxSpeed(190)
+                        self.motor_a.MaxSpeed(130)
+                        self.motor_b.MaxSpeed(180)
+                        self.motor_a.ResetPos()
+                        self.motor_b.ResetPos()
 
                         print "zacatek kalibrace 1"
                         self.pub_lcd.publish("Kalibrace polohy\n   1 z 4")
 
-                        #self.motor_b.GoTo(1000, wait=False)
-                        #time.sleep(1)
-                        #self.motor_a.GoTo(1000, wait=False)
-                        #time.sleep(5)
-
-                        self.motor_b.GoTo(-16000, wait=False)
+                        time.sleep(0.2)
+                        self.motor_a.GoTo(1000, wait=True)
+                        time.sleep(0.5)
+                        self.motor_b.GoTo(700, wait=True)
                         time.sleep(1)
+                        #self.motor_a.Float()
+                        #self.motor_b.Float()
+                        #time.sleep(0.3)
+
+                        self.pub_lcd.publish("Kalibrace polohy\n   1.z 4")
+                        print("kalibrace 1.2")
+
                         self.motor_a.GoTo(-40000, wait=False)
+                        time.sleep(2)
+                        self.motor_b.GoTo(-30000, wait=False)
+                        time.sleep(1)
 
                         while self.motor_a.IsBusy() or self.motor_b.IsBusy():
-                            time.sleep(0.3)
+                            time.sleep(1)
 
                         print "kalibrace 2"
                         self.pub_lcd.publish("Kalibrace polohy\n   2 z 4")
 
-                        print self.motor_b.getPosition()
-                        time.sleep(0.5)
+                        #time.sleep(0.5)
                         self.motor_b.ResetPos()
+                        #time.sleep(0.5)
                         self.motor_a.ResetPos()
+                        time.sleep(1)
 
                         print "kalibrace 3"
                         self.pub_lcd.publish("Kalibrace polohy\n   3 z 4")
 
-                        self.motor_b.GoTo(6000, wait=False) #16600/4
+
+                        #self.motor_a.GoTo(16000)
+                        self.motor_a.GoTo(15000)
+                        time.sleep(3)
+                        self.motor_b.GoTo(6000) #16600/4
                         time.sleep(1)
-                        self.motor_a.GoTo(16000, wait=False)
+
+                        while self.motor_a.IsBusy() or self.motor_b.IsBusy():
+                            time.sleep(0.3)
+
+
+                        self.motor_a.GoTo(15000)
+                        time.sleep(3)
+                        self.motor_b.GoTo(6000) #16600/4
+                        time.sleep(1)
 
                         while self.motor_a.IsBusy() or self.motor_b.IsBusy():
                             time.sleep(0.3)
@@ -345,11 +495,11 @@ class SolarLab(AromNode):
                         self.pub_imagecommand.publish("poweroff")
                         self.pub_lcd.publish("Vypinam se ... \n AROM    MLAB.cz")
                         time.sleep(1)
-                        os.system("poweroff")
+                        os.system("systemctl poweroff -i")
                         #os.system("shutdown now");
 
                         #pass
-                        
+
 
                 else:
                     if last_data[0] == 'KEY_OK' and self.flag['tracking'] == True and self.flag['assisted'] == True and self.bump == False:
@@ -382,7 +532,7 @@ class SolarLab(AromNode):
 
 
                     #self.pymlab(device="gpio_mount", method="set_ports", parameters=str(dict(port0 = self.port0, port1= self.port1)))
-                
+
             except Exception, e:
                 print "err1>", e
             rate.sleep()
@@ -394,11 +544,11 @@ class SolarLab(AromNode):
 
     def get_status(self, timer = None):
         try:
-            
-            #print "motor A: %i, motor B: %i " %(self.motor_a.getPosition(), self.motor_b.getPosition()) 
+
+            #print "motor A: %i, motor B: %i " %(self.motor_a.getPosition(), self.motor_b.getPosition())
 
             if not self.calibration:
-                
+
                 self.motor_a_status = self.motor_a.GetStatus()
                 self.motor_a_status2 = self.motor_a.GetStatus()
                 self.motor_a_pos = self.motor_a.getPosition()
@@ -422,38 +572,44 @@ class SolarLab(AromNode):
 
                     self.motor_a.Float()
                     self.motor_b.Float()
-                    #self.motor_c.Float()
 
                 else:
+
+                    self.bump = False
+
                     if self.mot_a_min > self.motor_a_pos and self.calib_status > 0:
+                        self.bump = True
                         if self.speedA > 0:
                             self.motor_a.Float()
                             self.speedA = 0
 
                         self.pub_beep.publish('horn')
-                        self.pub_lcd.publish("POZOR! limitSW\nA   jedte doleva")
+                        self.pub_lcd.publish("POZOR! limitSW\nAZ  jedte doleva")
 
                     elif self.mot_a_max < self.motor_a_pos and self.calib_status > 0:
+                        self.bump = True
                         if self.speedA < 0:
                             self.motor_a.Float()
                             self.speedA = 0
                         self.pub_beep.publish('horn')
-                        self.pub_lcd.publish("POZOR! limit SW\nA jedte doprava")
+                        self.pub_lcd.publish("POZOR! limit SW\nAZ jedte doprava")
 
 
                     if self.mot_b_min > self.motor_b_pos and self.calib_status > 0:
+                        self.bump = True
                         if self.speedB > 0:
                             self.motor_b.Float()
                             self.speedB = 0
                         self.pub_beep.publish('horn')
-                        self.pub_lcd.publish("POZOR! limit SW\nB   jedte dolu")
+                        self.pub_lcd.publish("POZOR! limit SW\nALT jedte dolu")
 
                     elif self.mot_b_max < self.motor_b_pos and self.calib_status > 0:
+                        self.bump = True
                         if self.speedB < 0:
                             self.motor_b.Float()
                             self.speedB = 0
                         self.pub_beep.publish('horn')
-                        self.pub_lcd.publish("POZOR! limit SW\nB    jedte nahoru")
+                        self.pub_lcd.publish("POZOR! limit SW\nALT  jedte nahoru")
 
 
                 #print self.motor_a_status, self.motor_b_status, self.motor_c_status
@@ -491,6 +647,14 @@ class SolarLab(AromNode):
     def callback_sunpos(self, recive):
         #print recive
         self.sunpos = recive
+
+
+    def rabbit_tracking(self, ch, method, properties, body):
+        print("A--------------")
+        print(" [x] Received %r" % body)
+        print(ch, method, properties)
+        #self.trackingSpd = float(rospy.get_param("/coelostat/speeds/tracking"))
+        #self.flag['tracking']= True
 
 
 if __name__ == '__main__':
