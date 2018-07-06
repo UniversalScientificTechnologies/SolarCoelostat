@@ -495,7 +495,7 @@ class SolarLab(AromNode):
                         self.pub_imagecommand.publish("poweroff")
                         self.pub_lcd.publish("Vypinam se ... \n AROM    MLAB.cz")
                         time.sleep(1)
-                        os.system("systemctl poweroff -i")
+                        os.system("systemctl poweroff -f")
                         #os.system("shutdown now");
 
                         #pass
