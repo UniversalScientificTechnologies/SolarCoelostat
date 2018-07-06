@@ -30,11 +30,13 @@ class SpecCapture(Thread):
         self.serial = serial
         self.integr_time = integr_time
         self.alive = True
-        self.recording = True
+        self.recording = False
         self.image_types = ['LIGHT', 'LIGHT_TEST', 'DARK', 'BIAS', 'none']
         self.image_type = 0
         self.obs_area = 'sun_area'
         self.hdffile = None
+        self.period = 5
+        self.last_save = time.time()
 
         asi.init('/home/roman/ASI_linux_mac_SDK/lib/x64/libASICamera2.so')
         self.camera = asi.Camera(0)
@@ -43,11 +45,13 @@ class SpecCapture(Thread):
         # Get all of the camera controls
         print('')
         print('Camera controls:')
-        self.camera.disable_dark_subtract()
 
-        self.camera.set_image_type(asi.ASI_IMG_RAW16)
+        self.camera.set_control_value(asi.ASI_BANDWIDTHOVERLOAD, self.camera.get_controls()['BandWidth']['MinValue'])
+        #self.camera.disable_dark_subtract()
+
+        self.camera.set_image_type(asi.ASI_IMG_Y8)
         self.camera.set_control_value(asi.ASI_GAIN, 200)
-        self.camera.set_control_value(asi.ASI_EXPOSURE, 30000)
+        self.camera.set_control_value(asi.ASI_EXPOSURE, 50000)
         #self.camera.set_control_value(asi.ASI_WB_B, 99)
         #self.camera.set_control_value(asi.ASI_WB_R, 75)
         #self.camera.set_control_value(asi.ASI_GAMMA, 50)
@@ -56,51 +60,60 @@ class SpecCapture(Thread):
 
         controls = self.camera.get_controls()
 
-        print controls
+        #self.camera.stop_video_capture()
+        #self.camera.stop_exposure()
+        #self.camera.start_video_capture()
+
+        print(controls)
         for cn in sorted(controls.keys()):
             print('    %s:' % cn)
             for k in sorted(controls[cn].keys()):
                 print('        %s: %s' % (k, repr(controls[cn][k])))
 
 
-        #self.spectrometer = sb.Spectrometer.from_serial_number()
-        #self.NewFileToSave()
-        #self.setIntegration()
-        #self.vl_range =  self.spectrometer.wavelengths()
-
     def getfilename(self):
-        return  os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area, "SlitJaw") + "/" + self.obs_area + datetime.datetime.utcnow().strftime("_%Y-%m-%d_%h%m%s" + ".tif")
-
-
+        directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), self.obs_area, "SlitJaw") + "/"
+        #directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), "area", "Pointing")
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        return directory + self.obs_area + datetime.datetime.utcnow().strftime("_%Y%m%d_%H%M%S" + ".tif")
 
     def run(self):
         cv2.namedWindow('SlitJaw', cv2.WINDOW_NORMAL)
-        self.NewFileToSave()
+        self.NewFileToSave()  #vytvori novou slozku
+        print("start ...")
         while self.alive:
-            if self.recording:
-                print "ahoj"
-                filename = self.getfilename()
-                print filename
-                img = self.camera.capture(filename=filename)
-                #gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-                cv2.imshow("SlitJaw", img)
-            else:
-                time.sleep(0.5)
-        self.camera.close()
+            print(self.last_save+self.period, time.time())
+            if self.recording and (self.last_save + self.period) < time.time():
+                print("save")
+                self.last_save = time.time()
 
-    #def AppendRow(self, data):
-        #size = self.hdfset.shape
-        #self.hdfset.resize((size[0]+1, size[1]))
-        #self.hdfset[size[0],:] = data
-        #if size[0] % 200 == 0:
-        #    self.hdffile.flush()
-        #    print "Flush to file"
+                self.camera.set_image_type(asi.ASI_IMG_RAW16)
+                img = self.camera.capture(filename = self.getfilename())
+                self.camera.set_image_type(asi.ASI_IMG_Y8)
+            else: 
+                img = self.camera.capture()
+
+            cv2.imshow('SlitJaw', img)    
+            time.sleep(0.1)
+        self.camera.close()
 
     def getTitle(self):
         return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b> \t Recording: <b>%s</b>" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type], self.recording)
 
+    def set_gain(self, value):
+        if value < 0: value = 0
+        if value > 400: value = 400
+        self.camera.set_control_value(asi.ASI_GAIN, value)
 
-    def setParameters(self, integration, area, data_type):
+    def set_integration(self, value):
+        # value in ms
+        if value < 0: value = 0
+        if value > 10000: value = 10000
+        self.camera.set_control_value(asi.ASI_EXPOSURE, value*1000)
+
+
+    def setParameters(self, integration, area, data_type, period):
         if area:
             if area != self.obs_area:
                 print area
@@ -110,6 +123,8 @@ class SpecCapture(Thread):
             self.setIntegration(integration)
         if data_type:
             self.image_type = data_type
+        if period:
+            self.period = period
 
 
     def setIntegration(self, time = None):
@@ -130,50 +145,27 @@ class SpecCapture(Thread):
             #self.CreateDataset()
             #self.hdfset.attrs.create('DATE_ROW0', str(datetime.datetime.utcnow()))
 
-    def CreateDataset(self, dataset_name = None):
-        pass
+    #def CreateDataset(self, dataset_name = None):
+    #    pass
 
-        # self.hdffile.flush()
-        # if not dataset_name:
-        #     dataset_name = "%04d_%04dms_%s" %(len(self.hdffile), self.integr_time, self.image_types[self.image_type])
-        # self.dataset_name = dataset_name
-        # print "NewDataset", dataset_name
-        # self.hdfset = self.hdffile.create_dataset(dataset_name, maxshape = (None, self.vl_range.shape[0]), shape = (0, self.vl_range.shape[0]), dtype='f', chunks=True)
-        # self.hdfset.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
-        # self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
-        # self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
-        # self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
-        # #self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
-        # #self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
-        # self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
-        # self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
-        #
-        # self.hdfset.attrs.create('OBS_area', str(self.obs_area))
-        # self.hdfset.attrs.create('OBS_type', str(self.image_types[self.image_type]))
-        # self.hdfset.attrs.create('OBS_coordA', str("aaa"))
-        # self.hdfset.attrs.create('OBS_coordB', str("bbb"))
-        #
-        # print self.hdfset, self.hdfset.shape
-
-        #return self.hdfset
 
     def NewFileToSave(self, name = None):
-        if self.hdffile:
-            self.hdffile.close()
-        if not name:
-            directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area, "SlitJaw")
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-            name = directory + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + ".hdf")
-
-        directory = os.path.dirname(name)
+        #if self.hdffile:
+        #    self.hdffile.close()
+        #if not name:
+        directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), self.obs_area, "SlitJaw")
         if not os.path.exists(directory):
             os.makedirs(directory)
-
-            #name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
-        self.hdf_file = name
+        #    name = directory + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + ".hdf")
+        #
+        #directory = os.path.dirname(name)
+        #if not os.path.exists(directory):
+        #    os.makedirs(directory)
+        #
+        #    #name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
+        #self.hdf_file = name
         #self.hdffile = h5py.File(self.hdf_file, "a")
-        return self.CreateDataset()
+        #return self.CreateDataset()
 
 
     def exit(self):
@@ -181,7 +173,7 @@ class SpecCapture(Thread):
         #self.spectrometer.close()
 
 
-class spectrometer(AromNode):
+class slitjaw_cam(AromNode):
     node_name = "obs_slitjaw"
     node_type = "obs_slitjaw"
     node_pymlab = True
@@ -190,7 +182,7 @@ class spectrometer(AromNode):
         print os.path.dirname(os.path.realpath(__file__))
         print os.getcwd()
         print __file__
-        print __file__+'.feature.hbs'
+        #print __file__+'.feature.hbs'
 
 
         AromNode.__init__(self)
@@ -199,15 +191,15 @@ class spectrometer(AromNode):
         print node_name
 
         self.LoadParamsFromConfig()
-        self.integr_time = 100
+        self.integr_time = 50
+        self.period_time = 5
+        self.gain = 200
         self.recording = False
 
         app = QtGui.QApplication(sys.argv)
         self.prepareSettingsWindow()
 
-
         self.integr_time = rospy.get_param(self.node_name+"/cam_inegration", 50)
-        self.recording = True
         self.plot = True
         self.SC = SpecCapture(serial = "", device= "")
 
@@ -266,13 +258,21 @@ class spectrometer(AromNode):
 
         integration = QtGui.QLineEdit(str(self.integr_time))
         integration.setValidator(QtGui.QIntValidator())
+        integration.textChanged.connect(lambda: self.SC.set_integration(int(integration.text())))
         integration.setMaxLength(4)
+
+        gain = QtGui.QLineEdit(str(self.gain))
+        gain.setValidator(QtGui.QIntValidator())
+        gain.textChanged.connect(lambda: self.SC.set_gain(int(gain.text())))
+        gain.setMaxLength(4)
+
+
+        period = QtGui.QLineEdit(str(self.period_time))
+        period.setValidator(QtGui.QIntValidator())
+        period.setMaxLength(4)
 
 
         sun_area_edit = QtGui.QLineEdit("sun_area")
-
-
-        label = QtGui.QLabel('Integration time')
 
         comboBox = QtGui.QComboBox()
         comboBox.addItem("LIGHT")
@@ -291,34 +291,39 @@ class spectrometer(AromNode):
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
         btn = QtGui.QPushButton('Update parameters')
-        btn.clicked.connect(lambda: self.updateFromWindow(integration, sun_area_edit, comboBox))
+        btn.clicked.connect(lambda: self.updateFromWindow(integration, sun_area_edit, comboBox, period))
+
         #btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
 
         mainLayout.addWidget(btn_exit)
-        mainLayout.addWidget(QtGui.QLabel("Integration time"))
+        mainLayout.addWidget(QtGui.QLabel("Integration time (ms)"))
         mainLayout.addWidget(integration)
-        mainLayout.addWidget(QtGui.QLabel("Observing name"))
+        mainLayout.addWidget(QtGui.QLabel("Gain (0 - 400)"))
+        mainLayout.addWidget(gain)
+        mainLayout.addWidget(QtGui.QLabel("Nazev pozorovani"))
         mainLayout.addWidget(sun_area_edit)
-        mainLayout.addWidget(QtGui.QLabel("Data type"))
+        mainLayout.addWidget(QtGui.QLabel("Typ dat"))
         mainLayout.addWidget(comboBox)
         mainLayout.addWidget(btn)
         mainLayout.addWidget(self.btn_recording)
+
+        mainLayout.addWidget(QtGui.QLabel("Perioda ukladani (s)"))
+        mainLayout.addWidget(period)
         #mainLayout.addWidget(ploting)
 
         self.set_window.show()
-        print "$$$$$$$$$$$$$$$$ konec"
+        print "konec"
 
     def updateRecording(self):
         self.SC.setRecording(self.btn_recording.isChecked())
 
-    def updateFromWindow(self, integration, sun_area_edit, comboBox):
-        self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())
+    def updateFromWindow(self, integration, sun_area_edit, comboBox, period):
+        self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex(), float(period.text()))
 
         rospy.set_param(self.node_name +"/cam_inegration", float(integration.text()))
         rospy.set_param(self.node_name +"/cam_data_type", int(comboBox.currentIndex()))
         #rospy.set_param(self.node_noma +"/cam_name", )
         rospy.set_param(self.node_name +"/cam_obsarea", str(sun_area_edit.text()) )
-
 
         #rosparam.dump_params(self.yaml_config_path, self.node_name)
         #print
@@ -336,4 +341,4 @@ class spectrometer(AromNode):
 
 
 if __name__ == '__main__':
-    m = spectrometer()
+    m = slitjaw_cam()

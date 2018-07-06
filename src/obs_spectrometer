@@ -37,10 +37,12 @@ class SpecCapture(Thread):
         self.obs_area = 'sun_area'
         self.hdffile = None
 
+        self.pos_r, self.pos_alpha, self.clonka = 0,0,0
+
         #self.spectrometer = sb.Spectrometer(devices[0])
         self.spectrometer = sb.Spectrometer(device)
         print device
-        self.spectrometer.integration_time_micros(100000)
+        self.spectrometer.integration_time_micros(10000)
         self.vl_range =  self.spectrometer.wavelengths()
 
         #self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
@@ -76,12 +78,27 @@ class SpecCapture(Thread):
         self.spectrometer.close()
 
     def AppendRow(self, data):
+        #print("append")
         size = self.hdfset.shape
         self.hdfset.resize((size[0]+1, size[1]))
         self.hdfset[size[0],:] = data
+        if size[0] % 50 ==0:
+            self.AppendParam()
         if size[0] % 200 == 0:
             self.hdffile.flush()
             print "Flush to file"
+
+    def AppendParam(self, pos = None, clonka = None):
+        if not pos and not clonka:
+            size = self.hdfset_pram.shape
+            self.hdfset_pram.resize((size[0]+1, size[1]))
+            self.hdfset_pram[size[0],:] = [time.time(), self.pos_alpha, self.pos_r, self.clonka]
+            #self.hdfset_pram.flush()
+        elif pos:
+            self.pos_alpha, self.pos_r = pos
+        elif clonka:
+            self.clonka = clonka
+
 
     def getTitle(self):
         return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b> \t Recording: <b>%s</b>" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type], self.recording)
@@ -133,20 +150,21 @@ class SpecCapture(Thread):
 
         self.hdfset.attrs.create('OBS_area', str(self.obs_area))
         self.hdfset.attrs.create('OBS_type', str(self.image_types[self.image_type]))
-        self.hdfset.attrs.create('OBS_coordA', str("aaa"))
-        self.hdfset.attrs.create('OBS_coordB', str("bbb"))
+        #self.hdfset.attrs.create('OBS_coordA', str("aaa"))
+        #self.hdfset.attrs.create('OBS_coordB', str("bbb"))
 
         print self.hdfset, self.hdfset.shape
+
+        self.hdfset_pram = self.hdffile.create_dataset(dataset_name+'param', maxshape = (None, 4), shape = (0, 4), dtype='f', chunks=True)
+
         return self.hdfset
 
     def NewFileToSave(self, name = None):
         if self.hdffile:
             self.hdffile.close()
         if not name:
-
             #name = os.path.join("/home/roman/", "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
-            
-            name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), self.obs_area) + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
+            name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), self.obs_area) + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
         
         directory = os.path.dirname(name)
         if not os.path.exists(directory):
@@ -168,6 +186,17 @@ class spectrometer(AromNode):
     node_type = "obs_spectrometer"
     node_pymlab = True
 
+    def get_position(self, data):
+        print(data.data)
+        d = data.data.split(';')
+        self.pos_alpha = float(d[0])
+        self.pos_r = float(d[1])
+
+    def get_clonka(self, data):
+        print(data.data)
+        d = data.data.split(';')
+        self.clonka = float(d[0])
+
     def __init__(self):
         print os.path.dirname(os.path.realpath(__file__))
         print os.getcwd()
@@ -185,6 +214,8 @@ class spectrometer(AromNode):
 
         self.integr1_time = rospy.get_param(self.node_name+"/spec1_inegration", 50)
         self.integr2_time = rospy.get_param(self.node_name+"/spec2_inegration", 50)
+        rospy.Subscriber("position", std_msgs.msg.String, self.get_position)
+        rospy.Subscriber("clonka", std_msgs.msg.String, self.get_clonka)
         self.recording = False
         self.recording1 = False
         self.recording2 = False
@@ -216,18 +247,21 @@ class spectrometer(AromNode):
             rate.sleep()
             try:
                 spec1 = self.SC1.getSpectrum()
+                self.qtwait()
                 spec2 = self.SC2.getSpectrum()
+                self.qtwait()
                 if self.recording:
                     print "row"
                     self.AppendRow(spec)
+                pg.QtGui.QApplication.processEvents()
                 if self.plot and time.time() > self.lastplot+0.25:
                     self.lastplot = time.time()
-                    #pw.plot(self.vl_range, spec, pen=(100, 20, 20), symbol='x', clear=True)
                     pw.plot(self.vl1_range, spec1, pen=(100, 20, 20), clear=True)
+                    self.qtwait()
                     pw2.plot(self.vl2_range, spec2, pen=(100, 20, 20), clear=True)
                 pw.setTitle(self.SC1.getTitle())
                 pw2.setTitle(self.SC2.getTitle())
-                pg.QtGui.QApplication.processEvents()
+                self.qtwait()
 
             except Exception, e:
                 print "err1>", repr(e)
@@ -236,6 +270,11 @@ class spectrometer(AromNode):
         self.SC2.exit()
 
         #self.hdfset[]
+
+    def qtwait(self):
+                pg.QtGui.QApplication.processEvents()
+                pg.QtGui.QApplication.processEvents()
+                pg.QtGui.QApplication.processEvents()
 
     def LoadParamsFromConfig(self):
         self.yaml_config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), 'config', self.node_name[1:]+".yaml")

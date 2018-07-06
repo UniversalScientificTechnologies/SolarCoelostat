@@ -40,14 +40,19 @@ class sunpos(AromNode):
         self.image_pub2 = rospy.Publisher("image_topic2", sensor_msgs.msg.Image, queue_size=1)
         self.pub_error = rospy.Publisher("sun_err", geometry_msgs.msg.Point, queue_size=1)
         self.pub_pos = rospy.Publisher("sun_pos", geometry_msgs.msg.Point, queue_size=1)
+        self.obs_name = rospy.Publisher("observation_name", std_msgs.msg.String, queue_size=1, latch = True)
         self.recording = False
         self.daymove_calib = False # tohle je normalne false. Pokud probiha kalibrace, tak true.
         self.daymove_old = None
         self.daymove_stage = 1 # vyhlazeno pro kalibraci pohybu
-        self.angle = 100
-        self.angleS = 110
+        self.angle = 0
+        self.angleS = 0
         self.angle_axisA = 0
         self.angle_axisB = 90
+        self.hold = False
+        self.hold_time = time.time()
+        self.record_pos = True
+        self.recpos_time = time.time()
         rospy.Subscriber("image_target", geometry_msgs.msg.Point, self.newTarget)
         rospy.Subscriber("image_command", std_msgs.msg.String, self.getCommand)
 
@@ -71,8 +76,8 @@ class sunpos(AromNode):
         self.cam.continuous_capture = True
         img, meta = self.cam.next()
 
-        cv2.namedWindow('plot', cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback("plot", self.onMouse)
+        cv2.namedWindow('Náhled pointační kamery', cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("Náhled pointační kamery", self.onMouse)
 
         #cap = cv2.VideoCapture(0)
         #frame_counter = 0
@@ -101,6 +106,8 @@ class sunpos(AromNode):
         print( "SolarDeclinationAngle:", self.sun_declinationAngle)
         print( "SolarAppierantDiameter:", self.sun_appdiameter)
 
+        last_msg_neni_slunce = False
+
         while not rospy.is_shutdown():
             try:
                 QtGui.QApplication.processEvents()
@@ -127,12 +134,15 @@ class sunpos(AromNode):
                 (offx, offy) = self.target
 
                 try:
+                    valid = False
                     for i, cnt in enumerate(contours):
                         area = cv2.contourArea(cnt)
                         if area > 20000:
-                            print "-------------------------------"
-                            diameter = int(math.sqrt(area/math.pi))*2
-                            print area, diameter
+                            used_area = area
+                            valid = True
+                            print("-------------------------------")
+                            diameter = int(math.sqrt(area/math.pi))*2 # prumer
+                            print(area, diameter)
                             epsilon = 10*cv2.arcLength(cnt,True)
                             approx = cv2.approxPolyDP(cnt,epsilon,True)
                             M = cv2.moments(cnt)
@@ -147,16 +157,16 @@ class sunpos(AromNode):
                             #print ellipse
                             cv2.ellipse(frame, ellipse, (10,10,225),2)       # vykresluje vypocitanou elipsu
 
-                            print ">>"
                             print ((cx-offx, cy-offy))
                             (coel_errorx, coel_errory) = self.rotate(cx-offx, cy-offy, -self.angle_axisA)
 
-                            print((coel_errorx, coel_errory))
+                            #print((coel_errorx, coel_errory))
 
+                            print('area', int(area))
                             cv2.circle(frame, self.sun_center, 5, (255, 10, 10), 1) # vykresluje stred slunce
                             cv2.putText(frame,'area: '+str(area), (cx,cy), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
-                            cv2.putText(frame,'Pos: ['+str(cx)+";"+str(cy)+"]", (cx,cy+30), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
-                            cv2.putText(frame,'Err: [%3f; %3f]'%(coel_errorx, coel_errory), (cx,cy+60), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'Pos: ['+str(cx)+";"+str(cy)+"]", (cx,cy+32), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'Err: [%3f; %3f]'%(coel_errorx, coel_errory), (cx,cy+64), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
 
                             cv2.line(frame, self.target, self.sun_center, (80, 80, 80))
 
@@ -172,18 +182,17 @@ class sunpos(AromNode):
                             x1, y1, x2, y2 = self.get_line((cx,cy), self.angle+90, diameter)
                             cv2.line(frame, (x1, y1), (x2, y2), (200, 90, 90), 2)
 
-
+                            self.pos_rot = -1*math.atan2(centery-cy, centerx-cx)*180/math.pi
+                            self.pos_dist = math.sqrt((centerx-cx)**2+(centery-cy)**2)/diameter/2
 
                             # Osa otaceni slunce (P-angle)
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.angleS+90, diameter*1.4)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), self.angleS+self.angle+90, diameter*1.4)
                             cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 4)
                             cv2.putText(frame,'P-angle', (x1, y1), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             cv2.putText(frame,'North', (x1, y1+30), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             # Kolmice na osu otacine
                             x1, y1, x2, y2 = self.get_line((cx,cy), self.angleS, diameter)
                             cv2.line(frame, (x1, y1), (x2, y2), (90, 200, 90), 4)
-
-
 
                             # Osa otaceni (P-angle)
                             #ang = math.tan(self.angleS/180*math.pi)
@@ -193,15 +202,11 @@ class sunpos(AromNode):
                             (rpx, rpy) = self.rotate(cpx, cpy, self.sun_declinationAngle)
 
 
-                            self.ui_label_cam_coord.setText("X: %3.3f; Y: %3.3f<br>X: %3.3f; Y: %3.3f<br><br>rotace: %s<br>SunLat: %s<br>SunLon: %s <br><br>WE angle: %.3f<br>SWE angle: %.3f <br> A: %3.3f B: %3.3f"
-                                %(cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90, self.angle, self.angleS, self.angle_axisA, self.angle_axisB))
+                            self.ui_label_cam_coord.setText("rot: %3.3f dist: %3.3f <br>X: %3.3f; Y: %3.3f<br>X: %3.3f; Y: %3.3f<br><br>rotace: %s<br>SunLat: %s<br>SunLon: %s <br><br>WE angle: %.3f<br>SWE angle: %.3f <br> A: %3.3f B: %3.3f"
+                                %(self.pos_rot, self.pos_dist, cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90, self.angle, self.angleS, self.angle_axisA, self.angle_axisB))
 
                     self.pub_error.publish(x = centerx - cx-offx, y = centery - cy-offy)
                     self.pub_pos.publish(x = cx, y = cy)
-
-                    #angle_y = math.tan(self.sun_WE_angle*math.pi/180)
-                    #length = 1000
-                    #cv2.line(frame, (int(centerx-1*length), int(centery+angle_y*length)), (int(centerx+1*length), int(centery-angle_y*length)), (80, 80, 80), 1)
 
                     x1, y1, x2, y2 = self.get_line((centerx, centery), self.angle_axisA, 1000)
                     cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 90), 4)
@@ -215,15 +220,44 @@ class sunpos(AromNode):
                     cv2.putText(frame,'status: '+str(self.status),(10,20), cv2.FONT_HERSHEY_DUPLEX, 0.5,(120,120,120))
 
                     if self.recording:
-
                         directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), "area", "Pointing")
                         if not os.path.exists(directory):
                             os.makedirs(directory)
                         print(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png')
                         cv2.imwrite(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png', gray)
 
+                    if self.hold: # and int(area) > 200000:
+                        if self.hold_time+1.5 < time.time():
+                            if used_area > 200000:
+                                self.hold_time = time.time()
+                                print("chyba pozice je... {}px, {}px, send".format(coel_errorx, coel_errory))
+                                msg_errx = coel_errorx
+                                msg_erry = coel_errory
+                                self.socket.send("chyba;1;{};{}".format(int(msg_errx), int(msg_erry)))
+                                last_msg_neni_slunce = False
+                            else:
+                                print('Chyba pozice - neni dostatecne slunce...')
+                                if not last_msg_neni_slunce:
+                                    last_msg_neni_slunce = True
+                                    self.socket.send("chyba;0;0;0")
+                        else:
+                            print("chyba pozice je... {}px, {}px".format(coel_errorx, coel_errory))
+
+                    
+                    if self.record_pos and self.recpos_time+2 <time.time():
+                        self.recpos_time = time.time()
+                        obsarea = rospy.get_param(self.node_name +"/spec_obsarea")
+                        name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), obsarea) + "/" + obsarea + datetime.datetime.now().strftime("_%Y-%m-%d" + ".pos")
+                        directory = os.path.dirname(name)
+                        if not os.path.exists(directory):
+                            os.makedirs(directory)
+                        with open(name, 'a+') as f:
+                            f.write('{};{};{};{}\n'.format(time.time(), self.pos_rot, self.pos_dist, 0))
+                    
+
                     if self.daymove_calib:
                         if not self.daymove_old:
+                            self.btn_genmove.setStyleSheet("background-color: orange")
                             self.daymove_old = (cx,cy)
                             (ocx, ocy) = self.daymove_old
                             print("Nastavuji OLD polohu")
@@ -239,6 +273,12 @@ class sunpos(AromNode):
                         delta = math.sqrt((dx)**2+(dy)**2)
                         angle = math.atan2(-dy, dx)/math.pi*180
 
+                        '''
+                        
+
+
+                        '''
+
                         if self.daymove_stage == 1:
                             print("Vzdalenost time", delta)
                             if delta > 50:
@@ -246,7 +286,7 @@ class sunpos(AromNode):
                                 self.socket.send("timer;1")
                                 print(dx, dy)
                                 self.angle = angle
-                                self.angleS= self.angle-(-25.2)
+                                #self.angleS= self.angle-(-25.2)
                                 print("Uhel je", self.angle)
                                 time.sleep(1)
 
@@ -277,6 +317,7 @@ class sunpos(AromNode):
                                 self.daymove_calib = False
                                 self.daymove_stage = 1
                                 self.daymove_old = None
+                                self.btn_genmove.setStyleSheet("background-color: green")
 
                         else:
                             self.daymove_stage = 1
@@ -288,7 +329,7 @@ class sunpos(AromNode):
                 except Exception as e:
                     print("chyba", e)
 
-                cv2.imshow("plot", frame)
+                cv2.imshow("Náhled pointační kamery", frame)
 
                 self.image_pub2.publish(self.bridge.cv2_to_imgmsg(thresh, "mono8"))
                 self.image_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
@@ -296,9 +337,13 @@ class sunpos(AromNode):
             except Exception as e:
                 print(e)
 
+
+    def getfilename(self):
+        return  os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), self.sun_area_edit.text(), "position") + "/" + self.sun_area_edit.text() + datetime.datetime.utcnow().strftime("_%Y%m%d" + ".hdf")
+
+
     def get_line(self, point, angle, length):
          x, y = point
-
          endy = length/2 * math.sin(math.radians(angle))
          endx = length/2 * math.cos(math.radians(angle))
 
@@ -323,8 +368,7 @@ class sunpos(AromNode):
     def onMouse(self, event,x,y,flags,param):
         if event == 1:
             print("ON mouse", event, x, y, flags, param)
-
-            target = object()
+            #target = object()
             self.newTarget((x,y))
 
     def newTarget(self, target):
@@ -341,8 +385,32 @@ class sunpos(AromNode):
     def setRecording(self, state):
         self.recording = bool(state)
 
+    def setHold(self, hold):
+        self.hold = bool(hold)
+        if not self.hold:
+            self.socket.send("chyba;0;0;0")
+
     def ExitApp(self):
+        self.socket.send("chyba;0;0;0")
         rospy.signal_shutdown("closed by window")
+
+    def target_actual(self):
+        self.newTarget(self.center)
+
+    def target_center(self):
+        self.newTarget(self.sun_center)
+
+    def set_exposure(self, val):
+        print('set exposure', val)
+        self.cam.exposure = float(val)
+
+    def set_p_angle(self, val):
+        print('set position angle', val)
+        self.angleS = float(val)
+
+    def set_observation_name(self, val):
+        self.obs_name.publish(val)
+
 
     def prepareSettingsWindow(self):
         pass
@@ -351,6 +419,7 @@ class sunpos(AromNode):
         self.set_window.resize(250, 150)
         self.set_window.move(300, 300)
         self.set_window.setWindowTitle('Pointing camera')
+        #ftself.set_window.setWindowIcon(QtGui.QIcon('/home/roman/arom_ws/src/SolarCoelostat/src/graphic/logo_pointing.png'))
         #self.set_window.show()
 
         #self.set_window.setWindowFlags(QtCore.Qt.WindowTitleHint)
@@ -363,13 +432,16 @@ class sunpos(AromNode):
 
         integration = QtGui.QLineEdit(str(0.01))
         integration.setValidator(QtGui.QDoubleValidator())
-        integration.setMaxLength(6)
+        integration.textChanged.connect(lambda: self.set_exposure(float(integration.text())) )
+        integration.setMaxLength(5)
 
         position = QtGui.QLineEdit(str(0.0))
         position.setValidator(QtGui.QDoubleValidator())
+        position.textChanged.connect(lambda: self.set_p_angle(float(position.text())) )
         position.setMaxLength(7)
 
         self.sun_area_edit = QtGui.QLineEdit("sun_area")
+        self.sun_area_edit.textChanged.connect(lambda: set_observation_name(self.sun_area_edit.text()))
 
         label = QtGui.QLabel('Integration time')
 
@@ -382,7 +454,7 @@ class sunpos(AromNode):
         comboBox.setCurrentIndex(rospy.get_param(self.node_name+"/spec_data_type",0))
 
         recording = QtGui.QCheckBox()
-        recording.setText("recording")
+        recording.setText("Zaznamemnavani")
         recording.setCheckable(True)
         recording.setChecked(False)
         recording.toggled.connect(lambda:self.setRecording(recording.isChecked()))
@@ -392,14 +464,23 @@ class sunpos(AromNode):
         ploting.setCheckable(True)
         ploting.setChecked(False)
         ploting.toggled.connect(lambda:self.setPlotting(ploting.isChecked()))
-
+        
+        hold = QtGui.QCheckBox()
+        hold.setText("Drz pozici")
+        hold.setCheckable(True)
+        hold.setChecked(False)
+        hold.toggled.connect(lambda:self.setHold(hold.isChecked()))
 
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
-        btn_genmove = QtGui.QPushButton('Zjistit denni pohyb')
-        btn_genmove.clicked.connect(lambda:self.getMove())
-        btn = QtGui.QPushButton('Update parameters')
+        self.btn_genmove = QtGui.QPushButton('Zjistit denni pohyb')
+        self.btn_genmove.clicked.connect(lambda:self.getMove())
+        btn = QtGui.QPushButton('Pouzij parametry')
         btn.clicked.connect(lambda: self.updateFromWindow(integration, position, self.sun_area_edit, comboBox))
+        btn_actual = QtGui.QPushButton('Drz soucastnou polohu')
+        btn_actual.clicked.connect(lambda: self.target_actual())
+        btn_center = QtGui.QPushButton('Drz stred')
+        btn_center.clicked.connect(lambda: self.target_center())
         #btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
 
         self.ui_label_cam_coord = QtGui.QLabel("x: UNLL <br> Y: NULL")
@@ -408,16 +489,19 @@ class sunpos(AromNode):
         mainLayout.addWidget(self.ui_label_cam_coord)
         mainLayout.addWidget(QtGui.QLabel("Pozicni uhel"))
         mainLayout.addWidget(position)
-        mainLayout.addWidget(QtGui.QLabel("Integration time"))
+        mainLayout.addWidget(QtGui.QLabel("Integracni cas"))
         mainLayout.addWidget(integration)
-        mainLayout.addWidget(QtGui.QLabel("Observing name"))
+        mainLayout.addWidget(QtGui.QLabel("Nazev pozorovani"))
         mainLayout.addWidget(self.sun_area_edit)
-        mainLayout.addWidget(QtGui.QLabel("Data type"))
+        mainLayout.addWidget(QtGui.QLabel("Typ dat"))
         mainLayout.addWidget(comboBox)
         mainLayout.addWidget(btn)
-        mainLayout.addWidget(btn_genmove)
+        mainLayout.addWidget(btn_actual)
+        mainLayout.addWidget(btn_center)
+        mainLayout.addWidget(self.btn_genmove)
         mainLayout.addWidget(recording)
-        mainLayout.addWidget(ploting)
+        #mainLayout.addWidget(ploting)
+        mainLayout.addWidget(hold)
 
         self.set_window.show()
 
@@ -437,7 +521,7 @@ class sunpos(AromNode):
         rospy.set_param(self.node_name +"/spec_data_type", int(comboBox.currentIndex()))
         rospy.set_param(self.node_name +"/spec_obsarea", str(sun_area_edit.text()))
 
-        self. float(integration.text())
+        #self.SC. float(integration.text())
 
         with open(self.yaml_config_path, 'w') as f:
             yaml.dump(rospy.get_param(self.node_name), f, default_flow_style=False)

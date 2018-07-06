@@ -183,6 +183,8 @@ class carusel(AromNode):
         self.X.MaxSpeed(5)                      # set maximal motor speed 
 
         i = 0
+
+        self.btn.setStyleSheet("background-color: orange")
         self.X.MoveWait(100)
         while True:
             QtGui.QApplication.processEvents()
@@ -192,6 +194,8 @@ class carusel(AromNode):
             print "duration: ", duration, "s"
             if duration < 1:
                 break
+
+        self.btn.setStyleSheet("")
         print "NALEZENY KONCOVY BOD"
         self.currentPositionLabel.setText("Poloha karuselu je %s." %(self.position+1))
 
@@ -213,17 +217,20 @@ class carusel(AromNode):
         return load_params
 
     def moveTo(self):
+        
+        self.btn.setStyleSheet("background-color: orange")
         target = self.targetPosition.currentIndex()
 
         while self.position != target:
             self.X.MoveWait(100)
             self.position += 1
-            if self.position == 7:
+            if self.position == 6:
                 self.position = 0
             print "pozice je:", self.position
             self.currentPositionLabel.setText("Poloha karuselu je %s." %(self.position+1))
             QtGui.QApplication.processEvents()
             QtGui.QApplication.processEvents()
+        self.btn.setStyleSheet('')
 
 
 
@@ -254,6 +261,7 @@ class carusel(AromNode):
         self.targetPosition.addItem("4")
         self.targetPosition.addItem("5")
         self.targetPosition.addItem("6")
+        self.targetPosition.addItem("7")
         self.targetPosition.setCurrentIndex(0)
 
         self.currentPositionLabel = QtGui.QLabel("Calibration... please wait")
@@ -261,14 +269,14 @@ class carusel(AromNode):
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
 
-        btn = QtGui.QPushButton('Rotate')
-        btn.clicked.connect(self.moveTo)
+        self.btn = QtGui.QPushButton('Rotate')
+        self.btn.clicked.connect(self.moveTo)
 
 
         mainLayout.addWidget(btn_exit)
         mainLayout.addWidget(self.targetPosition)
         mainLayout.addWidget(self.currentPositionLabel)
-        mainLayout.addWidget(btn)
+        mainLayout.addWidget(self.btn)
         
         self.set_window.show()
 
