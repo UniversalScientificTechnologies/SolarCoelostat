@@ -142,31 +142,30 @@ class sunpos(AromNode):
                             valid = True
                             print("-------------------------------")
                             diameter = int(math.sqrt(area/math.pi))*2 # prumer
-                            print(area, diameter)
+                            print("Area: {}, Diameter: {}".format(area,diameter))
                             epsilon = 10*cv2.arcLength(cnt,True)
                             approx = cv2.approxPolyDP(cnt,epsilon,True)
                             M = cv2.moments(cnt)
 
-                            cx = int(M['m10']/M['m00'])
+                            cx = int(M['m10']/M['m00']) # stredy slunecnich disku
                             cy = int(M['m01']/M['m00'])
                             self.sun_center = (cx, cy)
-                            self.cente_point = (cx-centerx, cy-centery)
+                            self.cente_point = (cx-centerx, cy-centery) # vzdalenost stredu sluce od stredu kamery
                             cpx, cpy = self.cente_point
 
                             ellipse = cv2.fitEllipse(cnt)
                             #print ellipse
                             cv2.ellipse(frame, ellipse, (10,10,225),2)       # vykresluje vypocitanou elipsu
 
-                            print ((cx-offx, cy-offy))
+                            print("chyba", (cx-offx, cy-offy))
                             (coel_errorx, coel_errory) = self.rotate(cx-offx, cy-offy, -self.angle_axisA)
 
-                            #print((coel_errorx, coel_errory))
+                            print("chyba px", (coel_errorx, coel_errory))
 
-                            print('area', int(area))
                             cv2.circle(frame, self.sun_center, 5, (255, 10, 10), 1) # vykresluje stred slunce
-                            cv2.putText(frame,'area: '+str(area), (cx,cy), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
-                            cv2.putText(frame,'Pos: ['+str(cx)+";"+str(cy)+"]", (cx,cy+32), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
-                            cv2.putText(frame,'Err: [%3f; %3f]'%(coel_errorx, coel_errory), (cx,cy+64), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'area: '+str(area), (cx,cy-2), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'Pos: ['+str(cx)+";"+str(cy)+"]", (cx,cy+35), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'Err: [%3f; %3f]'%(coel_errorx, coel_errory), (cx,cy+75), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
 
                             cv2.line(frame, self.target, self.sun_center, (80, 80, 80))
 
@@ -200,10 +199,22 @@ class sunpos(AromNode):
                             #cv2.putText(frame,'P', (int(cx-1*diameter/2), int(cy+ang*diameter/2)), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
 
                             (rpx, rpy) = self.rotate(cpx, cpy, self.sun_declinationAngle)
+                            print("Rotace", (rpx, rpy))
 
+                            #print(self.pos_rot)
 
-                            self.ui_label_cam_coord.setText("rot: %3.3f dist: %3.3f <br>X: %3.3f; Y: %3.3f<br>X: %3.3f; Y: %3.3f<br><br>rotace: %s<br>SunLat: %s<br>SunLon: %s <br><br>WE angle: %.3f<br>SWE angle: %.3f <br> A: %3.3f B: %3.3f"
-                                %(self.pos_rot, self.pos_dist, cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90, self.angle, self.angleS, self.angle_axisA, self.angle_axisB))
+                            text = "rot:{:6.2f}, dist:{:6.2f}<br>".format(self.pos_rot,self.pos_dist)
+                            text+= "<br>Poloha vuci stredu kamery<br> [{:5d},{:5d}]".format(cpx,cpy)
+                            text+= "<br>V souradnicich kamery<br> [{:5d},{:5d}]".format(cpx,cpy)
+                            text+= "<br>V souradnicich coelostatu<br> [{:6.2f},{:6.2f}]<br>".format(rpx,rpy)
+                            text+= "<br>Rotace: {:6.2f}".format(self.sun_declinationAngle)
+                            text+= "<br>Lat {:6.2f}, Lon {:6.2f}".format(rpx, rpy/diameter*90)
+                            #text+= "<br>Rotace: {self.sun_declinationAngle},<br> SunLon: {}".format()
+
+                            #self.ui_label_cam_coord.setText("rot: %3.3f dist: %3.3f <br>Poloha stredu Slunce oproti strudu kamery<br>V souradnicich kameryX: %3.3f; Y: %3.3f<br>"+
+                            #    "V souradnicich coelostatu:<br>X: %3.3f; Y: %3.3f<br><br>rotace: %s<br>SunLat: %s<br>SunLon: %s <br><br>WE angle: %.3f<br>SWE angle: %.3f <br> A: %3.3f B: %3.3f"
+                            #    %(self.pos_rot, self.pos_dist, cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90, self.angle, self.angleS, self.angle_axisA, self.angle_axisB))
+                            self.ui_label_cam_coord.setText(text)
 
                     self.pub_error.publish(x = centerx - cx-offx, y = centery - cy-offy)
                     self.pub_pos.publish(x = cx, y = cy)
@@ -219,6 +230,7 @@ class sunpos(AromNode):
                     cv2.circle(frame, self.target, 5, (255, 10, 10), 3)
                     cv2.putText(frame,'status: '+str(self.status),(10,20), cv2.FONT_HERSHEY_DUPLEX, 0.5,(120,120,120))
 
+                    print("recording",self.recording)
                     if self.recording:
                         directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), "area", "Pointing")
                         if not os.path.exists(directory):
@@ -226,6 +238,7 @@ class sunpos(AromNode):
                         print(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png')
                         cv2.imwrite(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png', gray)
 
+                    print("Hold:", self.hold)
                     if self.hold: # and int(area) > 200000:
                         if self.hold_time+1.5 < time.time():
                             if used_area > 200000:
@@ -243,7 +256,7 @@ class sunpos(AromNode):
                         else:
                             print("chyba pozice je... {}px, {}px".format(coel_errorx, coel_errory))
 
-                    
+                    print("Self record pos")
                     if self.record_pos and self.recpos_time+2 <time.time():
                         self.recpos_time = time.time()
                         obsarea = rospy.get_param(self.node_name +"/spec_obsarea")
@@ -254,7 +267,7 @@ class sunpos(AromNode):
                         with open(name, 'a+') as f:
                             f.write('{};{};{};{}\n'.format(time.time(), self.pos_rot, self.pos_dist, 0))
                     
-
+                    print("daymove_calib", self.daymove_calib)
                     if self.daymove_calib:
                         if not self.daymove_old:
                             self.btn_genmove.setStyleSheet("background-color: orange")
@@ -273,11 +286,6 @@ class sunpos(AromNode):
                         delta = math.sqrt((dx)**2+(dy)**2)
                         angle = math.atan2(-dy, dx)/math.pi*180
 
-                        '''
-                        
-
-
-                        '''
 
                         if self.daymove_stage == 1:
                             print("Vzdalenost time", delta)
@@ -322,7 +330,6 @@ class sunpos(AromNode):
                         else:
                             self.daymove_stage = 1
                             self.daymove_old = None
-
 
 
 

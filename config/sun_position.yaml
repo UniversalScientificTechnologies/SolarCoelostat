@@ -1,4 +1,4 @@
 camera: /home/roman/Videa/Webcam/2017-10-22-152359.webm
 spec_data_type: 0
-spec_inegration: 2.0
-spec_obsarea: '01'
+spec_inegration: 0.05
+spec_obsarea: sun_area

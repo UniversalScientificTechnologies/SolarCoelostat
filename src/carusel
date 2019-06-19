@@ -224,7 +224,7 @@ class carusel(AromNode):
         while self.position != target:
             self.X.MoveWait(100)
             self.position += 1
-            if self.position == 6:
+            if self.position >= 8:
                 self.position = 0
             print "pozice je:", self.position
             self.currentPositionLabel.setText("Poloha karuselu je %s." %(self.position+1))
