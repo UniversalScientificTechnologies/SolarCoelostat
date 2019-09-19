@@ -484,7 +484,7 @@ class sunpos(AromNode):
         self.btn_genmove.clicked.connect(lambda:self.getMove())
         btn = QtGui.QPushButton('Pouzij parametry')
         btn.clicked.connect(lambda: self.updateFromWindow(integration, position, self.sun_area_edit, comboBox))
-        btn_actual = QtGui.QPushButton('Drz soucastnou polohu')
+        btn_actual = QtGui.QPushButton('Drz soucasnou polohu')
         btn_actual.clicked.connect(lambda: self.target_actual())
         btn_center = QtGui.QPushButton('Drz stred')
         btn_center.clicked.connect(lambda: self.target_center())
