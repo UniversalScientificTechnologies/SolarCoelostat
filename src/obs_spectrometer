@@ -39,13 +39,11 @@ class SpecCapture(Thread):
 
         self.pos_r, self.pos_alpha, self.clonka = 0,0,0
 
-        #self.spectrometer = sb.Spectrometer(devices[0])
         self.spectrometer = sb.Spectrometer(device)
         print device
         self.spectrometer.integration_time_micros(10000)
         self.vl_range =  self.spectrometer.wavelengths()
 
-        #self.vl_range = np.arange(580, 700, 0.1)   # tohle bude nahrazeno za rozsah spektra
 
         #self.spectrometer = sb.Spectrometer.from_serial_number()
         self.NewFileToSave()
@@ -65,13 +63,12 @@ class SpecCapture(Thread):
  
     def run(self):
         while self.alive:
-            self.spec  = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
-            print self.spec
+            self.spec  = self.spectrometer.intensities(correct_dark_counts=True, correct_nonlinearity=True)
+            #print self.spec
             #self.spec = np.random.random(self.vl_range.shape[0])*2**16
             #self.spec = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
             
             if self.recording:
-                #print "ahoj"
                 self.AppendRow(self.spec)
             else:
                 time.sleep(0.5)
@@ -143,8 +140,6 @@ class SpecCapture(Thread):
         self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
         self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
         self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
-        #self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
-        #self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
         self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
         self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
 
@@ -163,7 +158,6 @@ class SpecCapture(Thread):
         if self.hdffile:
             self.hdffile.close()
         if not name:
-            #name = os.path.join("/home/roman/", "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
             name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), self.obs_area) + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.spectrometer.serial_number + ".hdf")
         
         directory = os.path.dirname(name)
@@ -382,9 +376,6 @@ class spectrometer(AromNode):
         #rospy.set_param(self.node_noma +"/spec_name", )
         rospy.set_param(self.node_name +"/spec_obsarea", str(sun_area_edit.text()) )
 
-
-        #rosparam.dump_params(self.yaml_config_path, self.node_name)
-        #print 
         with open(self.yaml_config_path, 'w') as f:
             yaml.dump(rospy.get_param(self.node_name), f, default_flow_style=False)
 
