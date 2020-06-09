@@ -57,6 +57,7 @@ class SpecCapture(Thread):
         #self.camera.set_control_value(asi.ASI_GAMMA, 50)
         self.camera.set_control_value(asi.ASI_BRIGHTNESS, 50)
         self.camera.set_control_value(asi.ASI_FLIP, 0)
+        self.camera.set_control_value(asi.ASI_HIGH_SPEED_MODE, 1)
 
         controls = self.camera.get_controls()
 
@@ -83,16 +84,19 @@ class SpecCapture(Thread):
         self.NewFileToSave()  #vytvori novou slozku
         print("start ...")
         while self.alive:
-            print(self.last_save+self.period, time.time())
+            #print(self.last_save+self.period, time.time())
             if self.recording and (self.last_save + self.period) < time.time():
                 print("save")
                 self.last_save = time.time()
 
                 self.camera.set_image_type(asi.ASI_IMG_RAW16)
+                time.sleep(0.2)
                 img = self.camera.capture(filename = self.getfilename())
                 self.camera.set_image_type(asi.ASI_IMG_Y8)
-            else: 
-                img = self.camera.capture()
+                time.sleep(0.2)
+            #else: 
+            
+            img = self.camera.capture()
 
             cv2.imshow('SlitJaw', img)    
             time.sleep(0.1)

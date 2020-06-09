@@ -59,6 +59,8 @@ class sunpos(AromNode):
         self.angle = 0
         self.set_p_angle()
         self.position_angle = sunpy.coordinates.get_sun_P().degree
+        self.pos_rot = 0
+        self.pos_dist = 0
         self.angle_axisA = 0
         self.angle_axisB = 90
         self.hold = False
@@ -150,7 +152,7 @@ class sunpos(AromNode):
                             valid = True
                             print("-------------------------------")
                             diameter = int(math.sqrt(area/math.pi))*2 # prumer
-                            print("Area: {}, Diameter: {}".format(area,diameter))
+                            # print("Area: {}, Diameter: {}".format(area,diameter))
                             epsilon = 10*cv2.arcLength(cnt,True)
                             approx = cv2.approxPolyDP(cnt,epsilon,True)
                             M = cv2.moments(cnt)
@@ -158,17 +160,17 @@ class sunpos(AromNode):
                             cx = int(M['m10']/M['m00']) # stredy slunecnich disku
                             cy = int(M['m01']/M['m00'])
                             self.sun_center = (cx, cy)
-                            self.cente_point = (cx-centerx, cy-centery) # vzdalenost stredu sluce od stredu kamery
-                            cpx, cpy = self.cente_point
+                            self.center_point = (cx-centerx, cy-centery) # vzdalenost stredu sluce od stredu kamery
+                            cpx, cpy = self.center_point
 
                             ellipse = cv2.fitEllipse(cnt)
                             #print ellipse
                             cv2.ellipse(frame, ellipse, (10,10,225),2)       # vykresluje vypocitanou elipsu
 
-                            print("chyba", (cx-offx, cy-offy))
+                            # print("chyba", (cx-offx, cy-offy))
                             (coel_errorx, coel_errory) = self.rotate(cx-offx, cy-offy, -self.angle_axisA)
 
-                            print("chyba px", (coel_errorx, coel_errory))
+                            # print("chyba px", (coel_errorx, coel_errory))
 
                             cv2.circle(frame, self.sun_center, 5, (255, 10, 10), 1) # vykresluje stred slunce
                             cv2.putText(frame,'area: '+str(area), (cx,cy-2), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
@@ -207,13 +209,12 @@ class sunpos(AromNode):
                             #cv2.putText(frame,'P', (int(cx-1*diameter/2), int(cy+ang*diameter/2)), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
 
                             (rpx, rpy) = self.rotate(cpx, cpy, self.sun_declinationAngle)
-                            print("Rotace", (rpx, rpy))
 
                             #print(self.pos_rot)
 
                             text = "rot:{:6.2f}, dist:{:6.2f}<br>".format(self.pos_rot,self.pos_dist)
                             text+= "<br>Poloha vuci stredu kamery<br> [{:5f},{:5f}]".format(cpx,cpy)
-                            text+= "<br>V souradnicich kamery<br> [{:5f},{:5f}]".format(cpx,cpy)
+                            # text+= "<br>V souradnicich kamery<br> [{:5f},{:5f}]".format(cpx,cpy)
                             text+= "<br>V souradnicich coelostatu<br> [{:6.2f},{:6.2f}]<br>".format(rpx,rpy)
                             text+= "<br>Rotace: {:6.2f}".format(self.sun_declinationAngle)
                             text+= "<br>Lat {:6.2f}, Lon {:6.2f}".format(rpx, rpy/diameter*90)
@@ -228,8 +229,6 @@ class sunpos(AromNode):
                     self.pub_pos.publish(x = int(cx), y = int(cy))
 
                     
-                    print("publish")
-                    print(self.sun_center, self.center, self.target, self.status)
                     cv2.circle(frame, self.sun_center, int(diameter/2), (200, 200, 10), 2)
                     cv2.circle(frame, self.center, 5, (200, 200, 10), 2)
                     cv2.circle(frame, self.target, 5, (255, 10, 10), 3)
@@ -251,13 +250,13 @@ class sunpos(AromNode):
                                 print("chyba pozice je... {}px, {}px, send".format(coel_errorx, coel_errory))
                                 msg_errx = coel_errorx
                                 msg_erry = coel_errory
-                                self.socket.send("chyba;1;{};{}".format(int(msg_errx), int(msg_erry)))
+                                self.socket.send_string("chyba;1;{};{}".format(int(msg_errx), int(msg_erry)))
                                 last_msg_neni_slunce = False
                             else:
                                 print('Chyba pozice - neni dostatecne slunce...')
                                 if not last_msg_neni_slunce:
                                     last_msg_neni_slunce = True
-                                    self.socket.send("chyba;0;0;0")
+                                    self.socket.send_string("chyba;0;0;0")
                         else:
                             print("chyba pozice je... {}px, {}px".format(coel_errorx, coel_errory))
 
@@ -280,11 +279,11 @@ class sunpos(AromNode):
                             (ocx, ocy) = self.daymove_old
                             print("Nastavuji OLD polohu")
                             if self.daymove_stage == 1:
-                                self.socket.send("timer;0")
+                                self.socket.send_string("timer;0")
                             elif self.daymove_stage == 2:
-                                self.socket.send("moveA;1")
+                                self.socket.send_string("moveA;1")
                             elif self.daymove_stage == 3:
-                                self.socket.send("moveB;1")
+                                self.socket.send_string("moveB;1")
 
                         dx = cx-ocx
                         dy = cy-ocy
@@ -296,7 +295,7 @@ class sunpos(AromNode):
                             print("Vzdalenost time", delta)
                             if delta > 50:
                                 print("Konec kalibrace")
-                                self.socket.send("timer;1")
+                                self.socket.send_string("timer;1")
                                 print(dx, dy)
                                 self.angle = angle
                                 #self.position_angle= self.angle-(-25.2)
@@ -309,7 +308,7 @@ class sunpos(AromNode):
                         elif self.daymove_stage == 2:
                             print("Vzdalenost v ose A", delta)
                             if delta > 50:
-                                self.socket.send("moveA;0")
+                                self.socket.send_string("moveA;0")
                                 print(dx, dy)
                                 self.angle_axisA = angle
                                 print("Uhel je", self.angle_axisA)
@@ -321,7 +320,7 @@ class sunpos(AromNode):
                         elif self.daymove_stage == 3:
                             print("Vzdalenost v ose B", delta)
                             if delta > 50:
-                                self.socket.send("moveB;0")
+                                self.socket.send_string("moveB;0")
                                 print(dx, dy)
                                 self.angle_axisB = angle
                                 print("Uhel je", self.angle_axisB)
@@ -401,10 +400,10 @@ class sunpos(AromNode):
     def setHold(self, hold):
         self.hold = bool(hold)
         if not self.hold:
-            self.socket.send("chyba;0;0;0")
+            self.socket.send_string("chyba;0;0;0")
 
     def ExitApp(self):
-        self.socket.send("chyba;0;0;0")
+        self.socket.send_string("chyba;0;0;0")
         rospy.signal_shutdown("closed by window")
 
     def target_actual(self):
@@ -557,9 +556,9 @@ class sunpos(AromNode):
     def getMove(self):
         self.daymove_calib = True
         self.daymove_old = None
-        #self.socket.send("timer;0")
+        #self.socket.send_string("timer;0")
         #time.sleep(5)
-        #self.socket.send("timer;1")
+        #self.socket.send_string("timer;1")
 
 
 
