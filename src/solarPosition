@@ -15,6 +15,7 @@ from cv_bridge import CvBridge, CvBridgeError
 
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+#from cv_bridge import CvBridge, CvBridgeError
 import math
 import time, datetime
 from PyQt5 import QtGui
@@ -47,9 +48,10 @@ class sunpos(AromNode):
 
         AromNode.__init__(self)
         self.set_feature('hsfa_sunpos', {'port': port})
-        self.image_pub = rospy.Publisher("image_topic", sensor_msgs.msg.Image, queue_size=1)
-        self.image_pub2 = rospy.Publisher("image_topic2", sensor_msgs.msg.Image, queue_size=1)
+        #self.image_pub = rospy.Publisher("image_topic", sensor_msgs.msg.Image, queue_size=1)
+        #self.image_pub2 = rospy.Publisher("image_topic2", sensor_msgs.msg.Image, queue_size=1)
         self.pub_error = rospy.Publisher("sun_err", geometry_msgs.msg.Point, queue_size=1)
+        self.pub_pos_error = rospy.Publisher("pos_error", geometry_msgs.msg.Point, queue_size=1)
         self.pub_pos = rospy.Publisher("sun_pos", geometry_msgs.msg.Point, queue_size=1)
         self.obs_name = rospy.Publisher("observation_name", std_msgs.msg.String, queue_size=1, latch = True)
         self.recording = False
@@ -90,8 +92,8 @@ class sunpos(AromNode):
         self.cam.continuous_capture = True
         img, meta = self.cam.next()
 
-        cv2.namedWindow('Náhled pointační kamery', cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback("Náhled pointační kamery", self.onMouse)
+        cv2.namedWindow("Pointing camera preview", cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("Pointing camera preview", self.onMouse)
 
         #cap = cv2.VideoCapture(0)
         #frame_counter = 0
@@ -121,10 +123,12 @@ class sunpos(AromNode):
         print( "SolarAppierantDiameter:", self.sun_appdiameter)
 
         last_msg_neni_slunce = False
+  
 
         while not rospy.is_shutdown():
             try:
                 QApplication.processEvents()
+                time.sleep(0.1)
 
                 img, meta = self.cam.next()
                 frame = img
@@ -183,30 +187,37 @@ class sunpos(AromNode):
                             #ang = math.tan((self.angle+90)/180.0*math.pi)
                             #print(ang)
 
+                            # Denni pohyb slunce
                             x1, y1, x2, y2 = self.get_line((cx,cy), self.angle, diameter)
                             cv2.line(frame, (x1, y1), (x2, y2), (200, 90, 90), 2)
                             cv2.putText(frame,'W', (x1, y1), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             cv2.putText(frame,'E', (x2, y2), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
 
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.angle+90, diameter)
-                            cv2.line(frame, (x1, y1), (x2, y2), (200, 90, 90), 2)
+                            #x1, y1, x2, y2 = self.get_line((cx,cy), self.angle+90, diameter)
+                            #cv2.line(frame, (x1, y1), (x2, y2), (200, 90, 90), 2)
 
                             self.pos_rot = -1*math.atan2(centery-cy, centerx-cx)*180/math.pi
                             self.pos_dist = math.sqrt((centerx-cx)**2+(centery-cy)**2)/diameter/2
 
                             # Osa otaceni slunce (P-angle)
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle+self.angle+90, diameter*1.4)
-                            cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 4)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle+self.angle+90, diameter*1.3)
+                            cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 3)
                             cv2.putText(frame,'P-angle', (x1, y1), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             cv2.putText(frame,'North', (x1, y1+30), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             # Kolmice na osu otacine
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle, diameter)
-                            cv2.line(frame, (x1, y1), (x2, y2), (90, 200, 90), 4)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle+self.angle, diameter)
+                            cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 3)
 
                             # Osa otaceni (P-angle)
                             #ang = math.tan(self.position_angle/180*math.pi)
                             #cv2.line(frame, (int(cx-1*diameter/2), int(cy+ang*diameter/2)), (int(cx+1*diameter/2), int(cy-ang*diameter/2)), (90, 90, 90), 3)
                             #cv2.putText(frame,'P', (int(cx-1*diameter/2), int(cy+ang*diameter/2)), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+
+                            x1, y1, x2, y2 = self.get_line((cx,cy), self.angle_axisA, diameter)
+                            cv2.line(frame, (x1, y1), (x2, y2), (20, 20, 20), 1)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), self.angle_axisB, diameter)
+                            cv2.line(frame, (x1, y1), (x2, y2), (20, 20, 20), 1)
+
 
                             (rpx, rpy) = self.rotate(cpx, cpy, self.sun_declinationAngle)
 
@@ -215,6 +226,7 @@ class sunpos(AromNode):
                             text = "rot:{:6.2f}, dist:{:6.2f}<br>".format(self.pos_rot,self.pos_dist)
                             text+= "<br>Poloha vuci stredu kamery<br> [{:5f},{:5f}]".format(cpx,cpy)
                             # text+= "<br>V souradnicich kamery<br> [{:5f},{:5f}]".format(cpx,cpy)
+                            text+= "<br>Uhly os [time, az, alt]: <br>{:6.2f}, {:6.2f}, {:6.2f}".format(self.angle, self.angle_axisA, self.angle_axisB)
                             text+= "<br>V souradnicich coelostatu<br> [{:6.2f},{:6.2f}]<br>".format(rpx,rpy)
                             text+= "<br>Rotace: {:6.2f}".format(self.sun_declinationAngle)
                             text+= "<br>Lat {:6.2f}, Lon {:6.2f}".format(rpx, rpy/diameter*90)
@@ -225,12 +237,13 @@ class sunpos(AromNode):
                             #    %(self.pos_rot, self.pos_dist, cpx, cpy, rpx, rpy, self.sun_declinationAngle, rpx, rpy/diameter*90, self.angle, self.position_angle, self.angle_axisA, self.angle_axisB))
                             self.ui_label_cam_coord.setText(text)
 
-                    self.pub_error.publish(x = int(centerx - cx-offx), y = int(centery - cy-offy))
-                    self.pub_pos.publish(x = int(cx), y = int(cy))
+                            self.pub_error.publish(x = int(centerx - cx-offx), y = int(centery - cy-offy))
+                            self.pub_pos_error.publish(x = int(coel_errorx), y = int(coel_errory))
+                            self.pub_pos.publish(x = int(cx), y = int(cy), z = int(area))
 
                     
                     cv2.circle(frame, self.sun_center, int(diameter/2), (200, 200, 10), 2)
-                    cv2.circle(frame, self.center, 5, (200, 200, 10), 2)
+                    cv2.circle(frame, self.center, 20, (0, 200, 0), 3)
                     cv2.circle(frame, self.target, 5, (255, 10, 10), 3)
                     cv2.putText(frame,'status: '+str(self.status),(10,20), cv2.FONT_HERSHEY_DUPLEX, 0.5,(120,120,120))
 
@@ -281,7 +294,7 @@ class sunpos(AromNode):
                             if self.daymove_stage == 1:
                                 self.socket.send_string("timer;0")
                             elif self.daymove_stage == 2:
-                                self.socket.send_string("moveA;1")
+                                self.socket.send_string("moveA;-1")
                             elif self.daymove_stage == 3:
                                 self.socket.send_string("moveB;1")
 
@@ -293,38 +306,38 @@ class sunpos(AromNode):
 
                         if self.daymove_stage == 1:
                             print("Vzdalenost time", delta)
-                            if delta > 50:
+                            if delta > 100:
                                 print("Konec kalibrace")
                                 self.socket.send_string("timer;1")
                                 print(dx, dy)
                                 self.angle = angle
                                 #self.position_angle= self.angle-(-25.2)
                                 print("Uhel je", self.angle)
-                                time.sleep(1)
+                                time.sleep(0.5)
 
                                 self.daymove_old = None
                                 self.daymove_stage = 2
 
                         elif self.daymove_stage == 2:
                             print("Vzdalenost v ose A", delta)
-                            if delta > 50:
+                            if delta > 100:
                                 self.socket.send_string("moveA;0")
                                 print(dx, dy)
-                                self.angle_axisA = angle
+                                self.angle_axisA = 180+angle
                                 print("Uhel je", self.angle_axisA)
-                                time.sleep(1)
+                                time.sleep(0.5)
 
                                 self.daymove_old = None
                                 self.daymove_stage = 3
 
                         elif self.daymove_stage == 3:
                             print("Vzdalenost v ose B", delta)
-                            if delta > 50:
+                            if delta > 100:
                                 self.socket.send_string("moveB;0")
                                 print(dx, dy)
                                 self.angle_axisB = angle
                                 print("Uhel je", self.angle_axisB)
-                                time.sleep(1)
+                                time.sleep(0.5)
 
                                 self.daymove_calib = False
                                 self.daymove_stage = 1
@@ -340,10 +353,10 @@ class sunpos(AromNode):
                 except Exception as e:
                     print("chyba", e)
 
-                cv2.imshow("Náhled pointační kamery", frame)
+                cv2.imshow("Pointing camera preview", frame)
 
-                self.image_pub2.publish(self.bridge.cv2_to_imgmsg(thresh, "mono8"))
-                self.image_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
+                #self.image_pub2.publish(self.bridge.cv2_to_imgmsg(thresh, "mono8"))
+                #self.image_pub.publish(self.bridge.cv2_to_imgmsg(frame, "bgr8"))
 
             except Exception as e:
                 print(e)

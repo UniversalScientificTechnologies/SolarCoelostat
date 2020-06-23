@@ -155,13 +155,13 @@ class carusel(AromNode):
 
         self.LoadParamsFromConfig()
         
-        self.positions = [[0, '1, 4mm, 61"'],
-                  [2, '3, 6mm, 92"'],
-                  [4, '5, 10mm, 154"'],
-                  [1, '2, 13mm, 200"'],
-                  [3, '4, 15mm, 230"'],
-                  [5, '6, 18mm, 276"'],
-                  [6, '7, 20mm, 307"']]
+        self.positions = [[0, '1, 4mm, 61"', 4],
+                  [2, '3, 6mm, 92"', 6],
+                  [4, '5, 10mm, 154"', 10],
+                  [1, '2, 13mm, 200"', 13],
+                  [3, '4, 15mm, 230"', 15],
+                  [5, '6, 18mm, 276"', 18],
+                  [6, '7, 20mm, 307"', 20]]
 
         app = QtGui.QApplication(sys.argv)
         self.prepareSettingsWindow()
@@ -188,6 +188,8 @@ class carusel(AromNode):
         spi.route()
 
         AromNode.__init__(self)
+        self.iris_pos = rospy.Publisher("/clonka", std_msgs.msg.String, latch = True)
+
 
         spi.SPI_config(spi.I2CSPI_MSB_FIRST| spi.I2CSPI_MODE_CLK_IDLE_HIGH_DATA_EDGE_TRAILING| spi.I2CSPI_CLK_461kHz)
 
@@ -235,6 +237,8 @@ class carusel(AromNode):
         self.btn.setStyleSheet("background-color: orange")
         index = self.targetPosition.currentIndex()
         target = self.positions[index][0]
+        self.iris_pos.publish("{};".format(0))
+        print("Presun na pozici {};".format(target))
 
         while self.position != target:
             self.X.MoveWait(100)
@@ -246,6 +250,7 @@ class carusel(AromNode):
             QtGui.QApplication.processEvents()
             QtGui.QApplication.processEvents()
         self.btn.setStyleSheet('')
+        self.iris_pos.publish("{};".format(self.positions[self.position][2]))
 
 
 

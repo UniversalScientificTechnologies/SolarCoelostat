@@ -6,6 +6,8 @@ import datetime
 import rospy
 import rosparam
 import std_msgs
+import sensor_msgs
+import geometry_msgs.msg
 import numpy as np
 import json
 import yaml
@@ -14,6 +16,13 @@ import h5py
 import pyqtgraph as pg
 from PyQt4 import QtGui
 from PyQt4 import QtCore
+# from PyQt5 import QtGui
+# from PyQt5 import QtCore
+# from PyQt5 import QtWidgets
+# from PyQt5.QtWidgets import QMainWindow, QApplication
+# from PyQt5.QtWidgets import (QWidget, QPushButton,
+#                              QHBoxLayout, QVBoxLayout, QApplication,
+#                              QLineEdit, QLabel, QComboBox, QCheckBox)
 from threading import Thread
 
 import seabreeze
@@ -25,7 +34,7 @@ from arom_helper import AromNode
 
 
 class SpecCapture(Thread):
-    def __init__(self, integr_time = 100, device = None, serial = 'serial'):
+    def __init__(self, integr_time = 100, device = None, serial = 'serial', calib_coef = [1, 0, 0]):
 
         Thread.__init__(self)
         self.serial = serial 
@@ -36,13 +45,17 @@ class SpecCapture(Thread):
         self.image_type = 0
         self.obs_area = 'sun_area'
         self.hdffile = None
+        self.calib_coef = calib_coef
 
         self.pos_r, self.pos_alpha, self.clonka = 0,0,0
+        self.camera_pos = [0, 0]
+        self.camera_area= 0
 
         self.spectrometer = sb.Spectrometer(device)
-        print device
+        print(device)
         self.spectrometer.integration_time_micros(10000)
         self.vl_range =  self.spectrometer.wavelengths()
+        self.position_error = []
 
 
         #self.spectrometer = sb.Spectrometer.from_serial_number()
@@ -51,9 +64,9 @@ class SpecCapture(Thread):
         #self.vl_range =  self.spectrometer.wavelengths()
 
         self.serial = self.spectrometer.serial_number
-        print self.spectrometer.serial_number
-        print self.spectrometer.model
-        print self.spectrometer.pixels
+        print(self.spectrometer.serial_number)
+        print(self.spectrometer.model)
+        print(self.spectrometer.pixels)
 
     def getSN(self):
         return self.serial
@@ -69,6 +82,7 @@ class SpecCapture(Thread):
             #self.spec = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
             
             if self.recording:
+                #self.AppendRow(self.spec)
                 self.AppendRow(self.spec)
             else:
                 time.sleep(0.5)
@@ -83,13 +97,13 @@ class SpecCapture(Thread):
             self.AppendParam()
         if size[0] % 200 == 0:
             self.hdffile.flush()
-            print "Flush to file"
+            print("Flush to file")
 
     def AppendParam(self, pos = None, clonka = None):
         if not pos and not clonka:
             size = self.hdfset_pram.shape
             self.hdfset_pram.resize((size[0]+1, size[1]))
-            self.hdfset_pram[size[0],:] = [time.time(), self.pos_alpha, self.pos_r, self.clonka]
+            self.hdfset_pram[size[0],:] = [time.time(), self.clonka, self.pos_alpha, self.pos_r, self.position_error[0], self.position_error[1], self.camera_pos[0], self.camera_pos[1], self.camera_area]
             #self.hdfset_pram.flush()
         elif pos:
             self.pos_alpha, self.pos_r = pos
@@ -106,7 +120,7 @@ class SpecCapture(Thread):
     def setParameters(self, integration, area, data_type):
         if area:
             if area != self.obs_area:
-                print area
+                print(area)
                 self.obs_area = str(area)
                 self.NewFileToSave()
         if integration:
@@ -116,14 +130,14 @@ class SpecCapture(Thread):
 
 
     def setIntegration(self, time = None):
-        print "NewIntegrationTime", time
+        print("NewIntegrationTime", time)
         if time:
             self.integr_time = time
         self.spectrometer.integration_time_micros(int(self.integr_time*1000))
         self.setRecording(self.recording)
 
     def setRecording(self, record = False):
-        print "recording", record
+        print("recording", record)
         self.recording = record
         if record:
             self.CreateDataset()
@@ -134,12 +148,15 @@ class SpecCapture(Thread):
         if not dataset_name:
             dataset_name = "%04d_%04dms_%s" %(len(self.hdffile), self.integr_time, self.image_types[self.image_type])
         self.dataset_name = dataset_name
-        print "NewDataset", dataset_name
+        print("NewDataset", dataset_name)
         self.hdfset = self.hdffile.create_dataset(dataset_name, maxshape = (None, self.vl_range.shape[0]), shape = (0, self.vl_range.shape[0]), dtype='f', chunks=True)
         self.hdfset.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
         self.hdfset.attrs.create('ROW_DELTA', self.integr_time)
         self.hdfset.attrs.create('COL_VAL0', self.vl_range[0])
-        self.hdfset.attrs.create('COL_DELTA', self.vl_range[1]-self.vl_range[0])
+        self.hdfset.attrs.create('COL_LIST', self.vl_range)
+        self.hdfset.attrs.create('COL_CAL1', self.calib_coef[0])
+        self.hdfset.attrs.create('COL_CAL2', self.calib_coef[1])
+        self.hdfset.attrs.create('COL_CAL3', self.calib_coef[2])
         self.hdfset.attrs.create('DEVICE_name', str(self.spectrometer.model))
         self.hdfset.attrs.create('DEVICE_serial', str(self.spectrometer.serial_number))
 
@@ -148,9 +165,9 @@ class SpecCapture(Thread):
         #self.hdfset.attrs.create('OBS_coordA', str("aaa"))
         #self.hdfset.attrs.create('OBS_coordB', str("bbb"))
 
-        print self.hdfset, self.hdfset.shape
+        print(self.hdfset, self.hdfset.shape)
 
-        self.hdfset_pram = self.hdffile.create_dataset(dataset_name+'param', maxshape = (None, 4), shape = (0, 4), dtype='f', chunks=True)
+        self.hdfset_pram = self.hdffile.create_dataset(dataset_name+'param', maxshape = (None, 32), shape = (0, 9), dtype='f', chunks=True)
 
         return self.hdfset
 
@@ -169,6 +186,16 @@ class SpecCapture(Thread):
         self.hdffile = h5py.File(self.hdf_file, "a")
         return self.CreateDataset()
 
+    def setClonka(self, diameter = 0):
+        self.clonka = diameter
+        return self.clonka
+
+    def setPositionError(self, position):
+        self.position_error = [position.x, position.y]
+
+    def setCameraPosition(self, position):
+        self.camera_pos = [position.x, position.y]
+        self.camera_area= position.z
 
     def exit(self):
         self.alive = False
@@ -186,30 +213,43 @@ class spectrometer(AromNode):
         self.pos_alpha = float(d[0])
         self.pos_r = float(d[1])
 
+    def get_position_error(self, data):
+        print(data)
+        self.position_error =data
+        self.SC1.setPositionError(data)
+        self.SC2.setPositionError(data)
+
+    def get_camera_pos(self, data):
+        print(data)
+        self.SC1.setCameraPosition(data)
+        self.SC2.setCameraPosition(data)
+
     def get_clonka(self, data):
-        print(data.data)
+        print("Zmenena poloha clonky", data.data)
         d = data.data.split(';')
         self.clonka = float(d[0])
+        self.SC1.setClonka(self.clonka)
+        self.SC2.setClonka(self.clonka)
 
     def __init__(self):
-        print os.path.dirname(os.path.realpath(__file__))
-        print os.getcwd()
-        print __file__
-        print __file__+'.feature.hbs'
+        # print os.path.dirname(os.path.realpath(__file__))
+        # print os.getcwd()
+        # print __file__
+        # print __file__+'.feature.hbs'
+
+        print("spousteni softwaru pro spektraky")
 
 
         AromNode.__init__(self)
         node_name = rospy.get_name()
         self.node_name = node_name
-        print node_name
+        print(node_name)
 
         self.LoadParamsFromConfig()
         
 
         self.integr1_time = rospy.get_param(self.node_name+"/spec1_inegration", 50)
         self.integr2_time = rospy.get_param(self.node_name+"/spec2_inegration", 50)
-        rospy.Subscriber("position", std_msgs.msg.String, self.get_position)
-        rospy.Subscriber("clonka", std_msgs.msg.String, self.get_clonka)
         self.recording = False
         self.recording1 = False
         self.recording2 = False
@@ -217,10 +257,13 @@ class spectrometer(AromNode):
         self.lastplot = time.time()
 
         devices = sb.list_devices()
-        print devices
+        print(devices)
 
-        self.SC1 = SpecCapture(serial = node_name[1:], device= devices[0])
-        self.SC2 = SpecCapture(serial = node_name[1:], device= devices[1])
+        spec1_calib = [rospy.get_param(self.node_name+"/spec1_coef1", 0), rospy.get_param(self.node_name+"/spec1_coef2", 0), rospy.get_param(self.node_name+"/spec1_coef3", 0)] 
+        spec2_calib = [rospy.get_param(self.node_name+"/spec2_coef1", 0), rospy.get_param(self.node_name+"/spec2_coef2", 0), rospy.get_param(self.node_name+"/spec2_coef3", 0)] 
+
+        self.SC1 = SpecCapture(serial = node_name[1:], device= devices[0], calib_coef = spec1_calib)
+        self.SC2 = SpecCapture(serial = node_name[1:], device= devices[1], calib_coef = spec2_calib)
         self.vl1_range = self.SC1.getVaveLength()
         self.vl2_range = self.SC2.getVaveLength()
 
@@ -231,6 +274,11 @@ class spectrometer(AromNode):
         #self.SC.setHdfset(self.NewFileToSave())
         self.SC1.start()
         self.SC2.start()
+
+        rospy.Subscriber("position", std_msgs.msg.String, self.get_position)
+        rospy.Subscriber("pos_error", geometry_msgs.msg.Point, self.get_position_error)
+        rospy.Subscriber("sun_pos", geometry_msgs.msg.Point, self.get_camera_pos)
+        rospy.Subscriber("clonka", std_msgs.msg.String, self.get_clonka)
 
         #self.pub_iris_pos = rospy.Publisher(node_name+"/iris/position", std_msgs.msg.String, queue_size=1, latch = True)
         #self.sub_iris_request = rospy.Subscriber("/ui/keyboard/out", std_msgs.msg.String, self.ui_action)
@@ -245,7 +293,7 @@ class spectrometer(AromNode):
                 spec2 = self.SC2.getSpectrum()
                 self.qtwait()
                 if self.recording:
-                    print "row"
+                    print("row")
                     self.AppendRow(spec)
                 pg.QtGui.QApplication.processEvents()
                 if self.plot and time.time() > self.lastplot+0.25:
@@ -257,8 +305,8 @@ class spectrometer(AromNode):
                 pw2.setTitle(self.SC2.getTitle())
                 self.qtwait()
 
-            except Exception, e:
-                print "err1>", repr(e)
+            except Exception as e:
+                print("err1>", repr(e))
 
         self.SC1.exit()
         self.SC2.exit()
@@ -279,7 +327,7 @@ class spectrometer(AromNode):
 
 
     def ExitApp(self):
-        print "Zacinam se ukoncovat"
+        print("Zacinam se ukoncovat")
         
         rospy.signal_shutdown("closed by window")
 
@@ -295,11 +343,11 @@ class spectrometer(AromNode):
         self.set_window.setLayout(mainLayout)
         #self.set_window.closeEvent(self.ExitApp)
 
-        integration1 = QtGui.QLineEdit(str(self.integr1_time))
+        integration1 = QtGui.QLineEdit(str(int(self.integr1_time)))
         integration1.setValidator(QtGui.QIntValidator())
         integration1.setMaxLength(4)
 
-        integration2 = QtGui.QLineEdit(str(self.integr2_time))
+        integration2 = QtGui.QLineEdit(str(int(self.integr2_time)))
         integration2.setValidator(QtGui.QIntValidator())
         integration2.setMaxLength(4)
 
@@ -367,8 +415,8 @@ class spectrometer(AromNode):
         self.SC2.setRecording(self.btn_recording.isChecked())
 
     def updateFromWindow(self, integration1, integration2, sun_area_edit, comboBox):
-        self.SC1.setParameters(float(integration1.text()), sun_area_edit.text(), comboBox.currentIndex())
-        self.SC2.setParameters(float(integration2.text()), sun_area_edit.text(), comboBox.currentIndex())
+        self.SC1.setParameters(int(float(integration1.text())), sun_area_edit.text(), comboBox.currentIndex())
+        self.SC2.setParameters(int(float(integration2.text())), sun_area_edit.text(), comboBox.currentIndex())
 
         rospy.set_param(self.node_name +"/spec1_inegration", float(integration1.text()))
         rospy.set_param(self.node_name +"/spec2_inegration", float(integration2.text()))
@@ -381,11 +429,11 @@ class spectrometer(AromNode):
 
 
     def setRecording(self, record = False):
-        print "recording", record
+        print("recording", record)
         self.recording = record
 
     def setPlotting(self, plot = False):
-        print "plotting", plot
+        print("plotting", plot)
         self.plot = plot
 
 
