@@ -55,7 +55,7 @@ class SpecCapture(Thread):
         print(device)
         self.spectrometer.integration_time_micros(10000)
         self.vl_range =  self.spectrometer.wavelengths()
-        self.position_error = []
+        self.position_error = [0, 0]
 
 
         #self.spectrometer = sb.Spectrometer.from_serial_number()
