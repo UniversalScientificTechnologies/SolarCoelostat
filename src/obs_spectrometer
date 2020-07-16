@@ -51,11 +51,20 @@ class SpecCapture(Thread):
         self.camera_pos = [0, 0]
         self.camera_area= 0
 
+
+        self.capture_start = None
+        self.captured_count = 0
+        self.caputer_limit = 0
+        self.capture_period = 0
+        self.lastcapture = 0
+        self.lastparam = 0
+
         self.spectrometer = sb.Spectrometer(device)
         print(device)
         self.spectrometer.integration_time_micros(10000)
         self.vl_range =  self.spectrometer.wavelengths()
         self.position_error = [0, 0]
+        self.correction = False
 
 
         #self.spectrometer = sb.Spectrometer.from_serial_number()
@@ -76,34 +85,46 @@ class SpecCapture(Thread):
  
     def run(self):
         while self.alive:
-            self.spec  = self.spectrometer.intensities(correct_dark_counts=True, correct_nonlinearity=True)
+            self.spec  = self.spectrometer.intensities(correct_dark_counts=self.correction, correct_nonlinearity=self.correction)
             #print self.spec
             #self.spec = np.random.random(self.vl_range.shape[0])*2**16
             #self.spec = self.spectrometer.intensities(correct_dark_counts=False, correct_nonlinearity=False)
             
             if self.recording:
-                #self.AppendRow(self.spec)
-                self.AppendRow(self.spec)
+                if (self.lastcapture + self.capture_period) < time.time():
+                    self.AppendRow(self.spec)
+                    self.lastcapture = time.time()
+                else:
+                    time.sleep(0.1/1000.0)
             else:
                 time.sleep(0.5)
+
+            if self.caputer_limit > 0 and self.recording:
+                if self.caputer_limit <= self.captured_count:
+                    self.recording= False
+                    self.hdffile.flush()
+                    print("Flush to file")
+
         self.spectrometer.close()
 
-    def AppendRow(self, data):
+    def AppendRow(self, data, flush = False):
         #print("append")
         size = self.hdfset.shape
         self.hdfset.resize((size[0]+1, size[1]))
         self.hdfset[size[0],:] = data
-        if size[0] % 50 ==0:
+        if size[0] % 50 ==0 or (self.lastparam + 5) > time.time():
             self.AppendParam()
-        if size[0] % 200 == 0:
+        if (size[0] % 200 == 0) or flush:
             self.hdffile.flush()
             print("Flush to file")
+        self.captured_count += 1
 
     def AppendParam(self, pos = None, clonka = None):
         if not pos and not clonka:
             size = self.hdfset_pram.shape
             self.hdfset_pram.resize((size[0]+1, size[1]))
-            self.hdfset_pram[size[0],:] = [time.time(), self.clonka, self.pos_alpha, self.pos_r, self.position_error[0], self.position_error[1], self.camera_pos[0], self.camera_pos[1], self.camera_area]
+            self.hdfset_pram[size[0],:] = [time.time() - self.capture_start, self.clonka, self.pos_alpha, self.pos_r, self.position_error[0], self.position_error[1], self.camera_pos[0], self.camera_pos[1], self.camera_area]
+            self.lastparam = time.time()
             #self.hdfset_pram.flush()
         elif pos:
             self.pos_alpha, self.pos_r = pos
@@ -112,7 +133,11 @@ class SpecCapture(Thread):
 
 
     def getTitle(self):
-        return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b> \t Image_type: <b>%s</b> \t Recording: <b>%s</b>" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type], self.recording)
+        if self.capture_start and self.recording:
+            lenght = int(time.time() - self.capture_start)/60.0
+        else:
+            lenght = 0
+        return "File: <b>%s</b> \t Dataset:<b>%s</b><br> Integration_time: <b>%s</b>, \t Image_type: <b>%s</b>, \t Recording: <b>%s</b>, \t Time: <b>%.2f</b> min, \t Count: <b>%s</b>/%s" %(self.hdf_file, self.dataset_name, self.integr_time, self.image_types[self.image_type], self.recording, lenght, self.captured_count, self.caputer_limit)
 
     def getSpectrum(self):
         return self.spec
@@ -134,14 +159,24 @@ class SpecCapture(Thread):
         if time:
             self.integr_time = time
         self.spectrometer.integration_time_micros(int(self.integr_time*1000))
-        self.setRecording(self.recording)
+        self.setRecording(self.recording, limit = self.caputer_limit, period = self.capture_period, correction = self.correction)
 
-    def setRecording(self, record = False):
+    def setRecording(self, record = False, limit = 0, period = 0, correction = False):
         print("recording", record)
         self.recording = record
+        self.caputer_limit = limit
+        self.capture_period = period
+        self.correction = correction
         if record:
             self.CreateDataset()
             self.hdfset.attrs.create('DATE_ROW0', str(datetime.datetime.utcnow()))
+            self.capture_start = time.time()
+            self.captured_count = 0
+        else:
+            self.capture_start = None
+        self.hdffile.flush()
+        print("Flush to file")
+
 
     def CreateDataset(self, dataset_name = None):
         self.hdffile.flush()
@@ -168,6 +203,7 @@ class SpecCapture(Thread):
         print(self.hdfset, self.hdfset.shape)
 
         self.hdfset_pram = self.hdffile.create_dataset(dataset_name+'param', maxshape = (None, 32), shape = (0, 9), dtype='f', chunks=True)
+        self.hdfset_pram.attrs.create('DATE_CREATE', str(datetime.datetime.utcnow()))
 
         return self.hdfset
 
@@ -200,6 +236,27 @@ class SpecCapture(Thread):
     def exit(self):
         self.alive = False
         #self.spectrometer.close()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+######################################################################################################
+######################################################################################################
+######################################################################################################
+######################################################################################################
 
 
 class spectrometer(AromNode):
@@ -256,6 +313,12 @@ class spectrometer(AromNode):
         self.plot = True
         self.lastplot = time.time()
 
+        self.capture_period = 250
+        self.capture_count = -1
+        self.caputer_limit = 0
+        self.capture_period = 0
+        self.correction = False
+
         devices = sb.list_devices()
         print(devices)
 
@@ -268,7 +331,9 @@ class spectrometer(AromNode):
         self.vl2_range = self.SC2.getVaveLength()
 
         pw = pg.plot(title="Spetral %s data" %(self.SC1.getSN()))
+        print(pw)
         pw2 = pg.plot(title="Spetral %s data" %(self.SC2.getSN()))
+        print(pw)
         self.PrepareSettingsWindow()
 
         #self.SC.setHdfset(self.NewFileToSave())
@@ -295,14 +360,21 @@ class spectrometer(AromNode):
                 if self.recording:
                     print("row")
                     self.AppendRow(spec)
+                    self.captured_count += 1
+                    # if int(self.value_count.text()) == 0:
+                    #     self.setRecording(False)
+                    #     self.updateRecording()
+                    # if int(self.value_count.text()) > 0:
+                    #     self.value_count.setText( str(int(self.value_count.text()) - 1) )
+
                 pg.QtGui.QApplication.processEvents()
                 if self.plot and time.time() > self.lastplot+0.25:
                     self.lastplot = time.time()
                     pw.plot(self.vl1_range, spec1, pen=(100, 20, 20), clear=True)
-                    self.qtwait()
                     pw2.plot(self.vl2_range, spec2, pen=(100, 20, 20), clear=True)
-                pw.setTitle(self.SC1.getTitle())
+                    self.qtwait()
                 pw2.setTitle(self.SC2.getTitle())
+                pw.setTitle(self.SC1.getTitle())
                 self.qtwait()
 
             except Exception as e:
@@ -351,6 +423,15 @@ class spectrometer(AromNode):
         integration2.setValidator(QtGui.QIntValidator())
         integration2.setMaxLength(4)
 
+        self.value_period = QtGui.QLineEdit(str(int(self.capture_period)))
+        self.value_period.setText(str(int(self.capture_period)))
+        self.value_period.setValidator(QtGui.QIntValidator())
+        self.value_period.setMaxLength(4)
+
+        self.value_count = QtGui.QLineEdit(str(int(self.capture_count)))
+        self.value_count.setValidator(QtGui.QIntValidator())
+        self.value_count.setMaxLength(4)
+
         sun_area_edit = QtGui.QLineEdit("sun_area")
 
 
@@ -358,7 +439,7 @@ class spectrometer(AromNode):
 
         comboBox = QtGui.QComboBox()
         comboBox.addItem("LIGHT")
-        comboBox.addItem("LIGHT_TEST")
+        comboBox.addItem("STRED_SLUNCE")
         comboBox.addItem("DARK")
         comboBox.addItem("BIAS")
         comboBox.addItem("none")
@@ -376,6 +457,12 @@ class spectrometer(AromNode):
         ploting.setChecked(self.plot)
         ploting.toggled.connect(lambda:self.setPlotting(ploting.isChecked()))
 
+        self.btn_correct = QtGui.QCheckBox()
+        self.btn_correct.setText("Korekce sepektroskopu")
+        self.btn_correct.setCheckable(True)
+        self.btn_correct.setChecked(self.correction)
+        self.btn_correct.toggled.connect(lambda:self.setCorrection(self.btn_correct.isChecked()))
+
 
         btn_exit = QtGui.QPushButton('exit')
         btn_exit.clicked.connect(lambda:self.ExitApp())
@@ -384,10 +471,14 @@ class spectrometer(AromNode):
         #btn.clicked.connect(lambda: (self.SC.setParameters(float(integration.text()), sun_area_edit.text(), comboBox.currentIndex())))
 
         mainLayout.addWidget(btn_exit)
-        mainLayout.addWidget(QtGui.QLabel("Integration %s time" %(self.SC1.getSN())))
+        mainLayout.addWidget(QtGui.QLabel("Integration %s [ms]" %(self.SC1.getSN())))
         mainLayout.addWidget(integration1)
-        mainLayout.addWidget(QtGui.QLabel("Integration %s time" %(self.SC2.getSN())))
+        mainLayout.addWidget(QtGui.QLabel("Integration %s [ms]" %(self.SC2.getSN())))
         mainLayout.addWidget(integration2)
+        mainLayout.addWidget(QtGui.QLabel("Capture period [ms]"))
+        mainLayout.addWidget(self.value_period)
+        mainLayout.addWidget(QtGui.QLabel("Count"))
+        mainLayout.addWidget(self.value_count)
         mainLayout.addWidget(QtGui.QLabel("Observing name"))
         mainLayout.addWidget(sun_area_edit)
         mainLayout.addWidget(QtGui.QLabel("Data type"))
@@ -395,6 +486,7 @@ class spectrometer(AromNode):
         mainLayout.addWidget(btn)
         mainLayout.addWidget(self.btn_recording)
         mainLayout.addWidget(ploting)
+        mainLayout.addWidget(self.btn_correct)
 
         '''
         mainLayout.addWidget(btn_exit)
@@ -411,8 +503,12 @@ class spectrometer(AromNode):
         self.set_window.show()
 
     def updateRecording(self):
-        self.SC1.setRecording(self.btn_recording.isChecked())
-        self.SC2.setRecording(self.btn_recording.isChecked())
+        self.SC1.setRecording(self.btn_recording.isChecked(), limit = int(self.value_count.text()), period = int(self.value_period.text())/1000.0, correction = self.correction)
+        self.SC2.setRecording(self.btn_recording.isChecked(), limit = int(self.value_count.text()), period = int(self.value_period.text())/1000.0, correction = self.correction)
+        if self.btn_recording.isChecked():
+            self.capture_start = time.time()
+        else:
+            self.capture_start = None
 
     def updateFromWindow(self, integration1, integration2, sun_area_edit, comboBox):
         self.SC1.setParameters(int(float(integration1.text())), sun_area_edit.text(), comboBox.currentIndex())
@@ -431,6 +527,10 @@ class spectrometer(AromNode):
     def setRecording(self, record = False):
         print("recording", record)
         self.recording = record
+
+    def setCorrection(self, record = False):
+        print("correction,", record)
+        self.correction = record
 
     def setPlotting(self, plot = False):
         print("plotting", plot)
