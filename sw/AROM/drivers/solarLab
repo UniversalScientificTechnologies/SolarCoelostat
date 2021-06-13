@@ -56,6 +56,8 @@ class SolarLab(AromNode):
         self.motor_a_status = ""
         self.motor_b_status = ""
         self.motor_c_status = ""
+        self.time_axis_addition = 0 # zmena rychlosti hodinove osy
+
         spdAold, spdBold = 0, 0
         rospy.set_param("/coelostat/speeds/tracking", 32.86)
         self.trackingSpdDefault = rospy.get_param("/coelostat/speeds/tracking")
@@ -129,10 +131,11 @@ class SolarLab(AromNode):
         #self.motor_b.Reset(KVAL_RUN = 0x19, KVAL_ACC = 0x49, KVAL_DEC = 0x49, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
         #self.motor_c.Reset(KVAL_RUN = 0x29, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b011) #time motor
 
-        self.motor_a.Reset(KVAL_RUN = 0x26, KVAL_ACC = 0x45, KVAL_DEC = 0x45, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
+        #self.motor_a.Reset(KVAL_RUN = 0x26, KVAL_ACC = 0x45, KVAL_DEC = 0x45, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
+        self.motor_a.Reset(KVAL_RUN = 0x23, KVAL_ACC = 0x30, KVAL_DEC = 0x30, FS_SPD = 0xFFFF, STEP_SEL = 0b000, ACC=0x00a) #leva prava
         #self.motor_b.Reset(KVAL_RUN = 0x20, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
-        #self.motor_a.Reset(KVAL_RUN = 0x20, KVAL_ACC = 0x40, KVAL_DEC = 0x40, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
-        self.motor_b.Reset(KVAL_RUN = 0x25, KVAL_ACC = 0x40, KVAL_DEC = 0x40, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #nahoru dolu
+        #self.motor_a.Reset(KVAL_RUN = 0x0, KVAL_ACC = 0x40, KVAL_DEC = 0x40, FS_SPD = 0xFFFF, STEP_SEL = 0b001) #leva prava
+        self.motor_b.Reset(KVAL_RUN = 0x23, KVAL_ACC = 0x30, KVAL_DEC = 0x30, FS_SPD = 0xFFFF, STEP_SEL = 0b001, ACC=0x00a) #nahoru dolu
         self.motor_c.Reset(KVAL_RUN = 0x29, KVAL_ACC = 0x39, KVAL_DEC = 0x39, FS_SPD = 0xFFFF, STEP_SEL = 0b011) #time motor
 
         #nahoru dolu
@@ -185,22 +188,32 @@ class SolarLab(AromNode):
                 if msg:
                     if 'timer;' in msg:
                         if msg.split(';')[1] == '0':
-                            print("STOP")
+                            print("STOP timer")
                             self.flag['tracking']= False
                             self.motor_c.Float()
 
                         elif msg.split(';')[1] == '1':
-                            print("START")
+                            print("START tracking")
                             self.flag['tracking']= True
                             self.motor_c.Run(0, self.trackingSpd*self.direction)
 
                         elif msg.split(';')[1] == '2':
-                            print("START only")
+                            print("START only time motor")
                             self.flag['tracking']= True
                             self.speedA, self.speedB = 0, 0
                             self.motor_c.Run(0, self.trackingSpd*self.direction)
                             self.motor_a.Float()
                             self.motor_b.Float()
+
+                        else:
+                            try:
+                                val = float(msg.split(';')[1])
+                                if val < 0.5: val = 0.5
+                                if val > 1.9: val = 1.9
+                                self.flag['tracking']= True
+                                self.motor_c.Run(0, self.trackingSpd*self.direction*val)
+                            except Exception as e:
+                                pass
 
                     elif 'moveA;' in msg:
                         if msg.split(';')[1] == '0':
@@ -331,22 +344,29 @@ class SolarLab(AromNode):
 
 
                     elif last_data[0] == 'KEY_VOLUMEUP':
-                        self.flag['assisted'] = not self.flag['assisted']
-                        #self.flag['tracking']= False
-                        #self.pub_imagecommand.publish("pause")
-                        self.motor_a.Float()
-                        self.motor_b.Float()
-                        self.motor_c.Run(0, self.trackingSpd*self.direction)
-                        #time.sleep(0.25)
+                        # self.flag['assisted'] = not self.flag['assisted']
+                        # #self.flag['tracking']= False
+                        # #self.pub_imagecommand.publish("pause")
+                        # self.motor_a.Float()
+                        # self.motor_b.Float()
+                        # self.motor_c.Run(0, self.trackingSpd*self.direction)
+                        # #time.sleep(0.25)
 
-                        if self.flag['assisted']:
-                            self.pub_lcd.publish("Asist. navadeni \n     Zapnuto")
-                        else:
-                            self.pub_lcd.publish("Asist. navadeni \n     Vypnuto")
+                        # if self.flag['assisted']:
+                        #     self.pub_lcd.publish("Asist. navadeni \n     Zapnuto")
+                        # else:
+                        #     self.pub_lcd.publish("Asist. navadeni \n     Vypnuto")
+                        self.time_axis_addition += 1
+                        self.flag['tracking']= True
+                        self.motor_c.Run(0, self.trackingSpd*self.direction+self.time_axis_addition)
 
 
                     elif last_data[0] == 'KEY_VOLUMEDOWN':
-                        self.pub_imagecommand.publish("hold")
+                        #self.pub_imagecommand.publish("hold")
+                        self.time_axis_addition += -1
+                        self.flag['tracking']= True
+                        self.motor_c.Run(0, self.trackingSpd*self.direction+self.time_axis_addition)
+
 
                     elif last_data[0] == 'KEY_OK':
                         self.trackingSpd = float(rospy.get_param("/coelostat/speeds/tracking"))
@@ -400,82 +420,112 @@ class SolarLab(AromNode):
 
                     elif last_data[0] == 'KEY_BACK': # BACK - vyresetuje nastavení, vycentruje obraz na střed
 
-                        self.calibration = True
+                        self.calibration = True  # tohle je, ze kalibrace probiha
                         self.trackingSpd = self.trackingSpdDefault*self.direction
                         self.bump = False
-                        self.motor_a.Float()
-                        self.motor_b.Float()
-                        self.motor_c.Float()
+                        self.motor_a.Reset()
+                        self.motor_b.Reset()
+                        self.motor_c.Reset()
+                        time.sleep(0.5)
 
+                        self.motor_a.wait()
+                        self.motor_b.wait()
 
-                        self.motor_a.MaxSpeed(130)
-                        self.motor_b.MaxSpeed(180)
+                        self.motor_a.MaxSpeed(100)
+                        self.motor_b.MaxSpeed(100)
                         self.motor_a.ResetPos()
                         self.motor_b.ResetPos()
 
-                        print "zacatek kalibrace 1"
-                        self.pub_lcd.publish("Kalibrace polohy\n   1 z 4")
+                        print "zacatek kalibrace 1 - bezpečnostní odjetí"
+                        self.pub_lcd.publish("Kalibrace polohy\n  1 z 4")
 
-                        time.sleep(0.2)
-                        self.motor_a.GoTo(1000, wait=True)
-                        time.sleep(0.5)
-                        self.motor_b.GoTo(700, wait=True)
-                        time.sleep(1)
-                        #self.motor_a.Float()
-                        #self.motor_b.Float()
-                        #time.sleep(0.3)
+                        if self.motor_a.GetStatus().get("SW_F", True) or self.motor_b.GetStatus().get("SW_F", True):
+                            print("Kalibrace selhala - motor na koncaku")
+                            self.pub_lcd.publish("Kalibrace-Error\nMotor na koncaku")
+                            self.calibration = False
+                            self.motor_c.Float()
+                            self.motor_a.Float()
+                            self.motor_b.Float()
+                            continue
 
-                        self.pub_lcd.publish("Kalibrace polohy\n   1.z 4")
-                        print("kalibrace 1.2")
+                        self.motor_c.Run(0, self.trackingSpd*self.direction)
 
-                        self.motor_a.GoTo(-40000, wait=False)
-                        time.sleep(2)
-                        self.motor_b.GoTo(-30000, wait=False)
-                        time.sleep(1)
+                        self.pub_lcd.publish("Kalibrace polohy\n  2 z 5")
+                        print(">> kalibrace 2")
 
-                        while self.motor_a.IsBusy() or self.motor_b.IsBusy():
+                        for x in range(3):
+                            self.motor_a.Move(220000)
+                            time.sleep(1)
+                            self.motor_b.Move(100000)
                             time.sleep(1)
 
-                        print "kalibrace 2"
-                        self.pub_lcd.publish("Kalibrace polohy\n   2 z 4")
+                        print("Cekam - dolu")
+                        while self.motor_a.IsBusy() or self.motor_b.IsBusy():
+                            time.sleep(1)
+                            a, b = self.motor_a.getPosition(), self.motor_b.getPosition()
+                            print "dolu: ", a, b
+
+                        print "kalibrace 3"
+                        self.pub_lcd.publish("Kalibrace polohy\n   3 z 5")
 
                         #time.sleep(0.5)
+                        print("Vyresetovani polohy nahore")
+                        self.motor_a.Float()
+                        self.motor_b.Float()
+                        time.sleep(1)
                         self.motor_b.ResetPos()
-                        #time.sleep(0.5)
                         self.motor_a.ResetPos()
                         time.sleep(1)
 
-                        print "kalibrace 3"
-                        self.pub_lcd.publish("Kalibrace polohy\n   3 z 4")
 
+                        for x in range(5):
+                            self.motor_a.Move(-250000)
+                            time.sleep(1)
+                            self.motor_b.Move(-100000)
+                            time.sleep(1)
+                        self.pub_lcd.publish("Kalibrace polohy\n   4 z 5")
+
+
+                        print("Cekam - nahoru")
+                        while self.motor_a.IsBusy() or self.motor_b.IsBusy():
+                            time.sleep(1)
+                            a, b = self.motor_a.getPosition(), self.motor_b.getPosition()
+                            print "nahoru: ", a, b
+
+                        self.mot_a_min = 0
+                        self.mot_a_max = self.motor_a.getPosition()
+                        self.mot_b_min = 0
+                        self.mot_b_max = self.motor_b.getPosition()
+
+                        print("Rozsahy:")
+                        print(self.mot_a_min, self.mot_a_max)
+                        print(self.mot_b_min, self.mot_b_max)
+
+                        print "kalibrace 3"
+                        self.pub_lcd.publish("Kalibrace polohy\n   5 z 5")
 
                         #self.motor_a.GoTo(16000)
-                        self.motor_a.GoTo(15000)
-                        time.sleep(3)
-                        self.motor_b.GoTo(6000) #16600/4
-                        time.sleep(1)
+                        print("Prejezd do stredu")
 
+                        for x in xrange(5):
+                            self.motor_a.GoTo(self.mot_a_max/2, wait = False)
+                            time.sleep(1)
+                            self.motor_b.GoTo(self.mot_b_max/2, wait = False)
+                            time.sleep(1)
+
+
+                        print("Cekam - stred")
                         while self.motor_a.IsBusy() or self.motor_b.IsBusy():
-                            time.sleep(0.3)
-
-
-                        self.motor_a.GoTo(15000)
-                        time.sleep(3)
-                        self.motor_b.GoTo(6000) #16600/4
-                        time.sleep(1)
-
-                        while self.motor_a.IsBusy() or self.motor_b.IsBusy():
-                            time.sleep(0.3)
+                            time.sleep(1)
+                            a, b = self.motor_a.getPosition(), self.motor_b.getPosition()
+                            print "stred: ", a, b
+                            
 
                         print "kalibrace 4"
-
-                        print "back"
-                        print "kalibrace dokoncena"
                         self.trackingSpd = int(rospy.get_param("/coelostat/speeds/tracking", 32.8))
                         self.motor_a.Float()
                         self.motor_b.Float()
 
-                        self.motor_c.Run(0, self.trackingSpd*self.direction)
                         self.pub_lcd.publish("Kalibrace polohy\nDokonceno")
                         self.calibration = False
                         self.calib_status = 1
@@ -557,7 +607,7 @@ class SolarLab(AromNode):
                 self.motor_b_pos = self.motor_b.getPosition()
                 self.motor_c_status = self.motor_c.GetStatus()
 
-                print self.motor_a_pos, self.motor_b_pos
+                #print(self.motor_a_pos, self.motor_b_pos)
 
 
                 #print self.motor_a_status['SW_F'], self.motor_b_status['SW_F'], self.motor_c_status['SW_F']
