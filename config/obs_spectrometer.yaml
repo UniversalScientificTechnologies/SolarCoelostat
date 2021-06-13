@@ -1,12 +1,12 @@
 spec1_coef1: 0.041200951
 spec1_coef2: -9.86427e-07
 spec1_coef3: -2.30056e-11
-spec1_inegration: 100.0
+spec1_inegration: 1000.0
 spec1_val0: 349.457516
 spec2_coef1: 0.1337807626
 spec2_coef2: -2.45278e-06
 spec2_coef3: -5.44474e-11
-spec2_inegration: 100.0
+spec2_inegration: 5000.0
 spec2_val0: 476.90386963
 spec_data_type: 0
 spec_inegration: 50.0
