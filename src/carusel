@@ -239,6 +239,7 @@ class carusel(AromNode):
         target = self.positions[index][0]
         self.iris_pos.publish("{};".format(0))
         print("Presun na pozici {};".format(target))
+        rospy.set_param("/carusel_position", target)
 
         while self.position != target:
             self.X.MoveWait(100)

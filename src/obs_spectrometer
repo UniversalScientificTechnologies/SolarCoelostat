@@ -243,6 +243,7 @@ class SpecCapture(Thread):
 
             #name = os.path.join(os.path.expanduser("~"), "arom_ws", "data") + "/" + self.obs_area + datetime.datetime.now().strftime("_%Y-%m-%d_" + self.serial + ".hdf")
         self.hdf_file = name
+        rospy.set_param("hdf_file", self.hdf_file)
         self.hdffile = h5py.File(self.hdf_file, "a")
         return self.CreateDataset()
 

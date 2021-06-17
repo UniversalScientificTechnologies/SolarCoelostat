@@ -97,23 +97,21 @@ class SpecCapture(Thread):
         self.NewFileToSave()  #vytvori novou slozku
         
         print("start ...")
-        plt.ion()
         while self.alive:
             print("loop")
             #print(self.last_save+self.period, time.time())
-            if self.recording and (self.last_save + self.period) < time.time():
+            if self.recording and (self.last_save + self.period/1000) < time.time():
                 print("save")
                 self.last_save = time.time()
-
                 self.camera.set_image_type(asi.ASI_IMG_RAW16)
+                time.sleep(0.2)
                 img = self.camera.capture(filename = self.getfilename())
                 self.camera.set_image_type(asi.ASI_IMG_Y8)
+                time.sleep(0.2)
             #else: 
             img = self.camera.capture()
-
             self.queue.put(img)
 
-            #time.sleep(0.1)
 
         self.camera.close()
 
@@ -123,7 +121,7 @@ class SpecCapture(Thread):
     def set_gain(self, value):
         if value < 0: value = 0
         if value > 400: value = 400
-        self.camera.set_control_value(asi.ASI_GAIN, value)
+        self.camera.set_control_value(asi.ASI_GAIN, value*1000)
 
     def set_integration(self, value):
         # value in ms
@@ -152,7 +150,7 @@ class SpecCapture(Thread):
             self.integr_time = time
 
         print "integration is", int(self.integr_time)
-        self.camera.set_control_value(asi.ASI_EXPOSURE, int(self.integr_time*1000))
+        self.camera.set_control_value(asi.ASI_EXPOSURE, int(self.integr_time)*1000)
         #self.camera.set_control_value(asi.ASI_EXPOSURE, self.integr_time)
         self.setRecording(self.recording)
 
@@ -279,7 +277,7 @@ class slitjaw_cam(AromNode):
         integration = QtGui.QLineEdit(str(self.integr_time))
         integration.setValidator(QtGui.QIntValidator())
         integration.textChanged.connect(lambda: self.SC.set_integration(int(integration.text())))
-        integration.setMaxLength(4)
+        integration.setMaxLength(5)
 
         gain = QtGui.QLineEdit(str(self.gain))
         gain.setValidator(QtGui.QIntValidator())
@@ -289,7 +287,7 @@ class slitjaw_cam(AromNode):
 
         period = QtGui.QLineEdit(str(self.period_time))
         period.setValidator(QtGui.QIntValidator())
-        period.setMaxLength(4)
+        period.setMaxLength(5)
 
 
         sun_area_edit = QtGui.QLineEdit("sun_area")
@@ -327,7 +325,7 @@ class slitjaw_cam(AromNode):
         mainLayout.addWidget(btn)
         mainLayout.addWidget(self.btn_recording)
 
-        mainLayout.addWidget(QtGui.QLabel("Perioda ukladani (s)"))
+        mainLayout.addWidget(QtGui.QLabel("Perioda ukladani (ms)"))
         mainLayout.addWidget(period)
         #mainLayout.addWidget(ploting)
 

@@ -11,6 +11,7 @@ import sensor_msgs
 import geometry_msgs
 import arom
 from cv_bridge import CvBridge, CvBridgeError
+import h5py
 
 
 
@@ -84,6 +85,9 @@ class sunpos(AromNode):
         app = QApplication(sys.argv)
         self.prepareSettingsWindow()
 
+        self.hdf_file = False
+        self.last_flush = time.time()
+
 
         self.cam = ids.Camera()
         #self.cam.color_mode = ids.ids_core.COLOR_RGB8    # Get images in RGB format
@@ -146,7 +150,7 @@ class sunpos(AromNode):
              # Nastav pozicni uhel automaticky
                 p_ang = self.set_p_angle()
                 self.position.setText("{}".format(p_ang))
-
+                used_area = 0
                 try:
                     valid = False
                     for i, cnt in enumerate(contours):
@@ -200,12 +204,12 @@ class sunpos(AromNode):
                             self.pos_dist = math.sqrt((centerx-cx)**2+(centery-cy)**2)/diameter/2
 
                             # Osa otaceni slunce (P-angle)
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle+self.angle+90, diameter*1.3)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), -self.position_angle+self.angle+90, diameter*1.3)
                             cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 3)
-                            cv2.putText(frame,'P-angle', (x1, y1), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
-                            cv2.putText(frame,'North', (x1, y1+30), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'P-angle', (x2, y2), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
+                            cv2.putText(frame,'North', (x2, y2+30), cv2.FONT_HERSHEY_DUPLEX, 1.5,(120,120,120))
                             # Kolmice na osu otacine
-                            x1, y1, x2, y2 = self.get_line((cx,cy), self.position_angle+self.angle, diameter)
+                            x1, y1, x2, y2 = self.get_line((cx,cy), -self.position_angle+self.angle, diameter)
                             cv2.line(frame, (x1, y1), (x2, y2), (90, 90, 200), 3)
 
                             # Osa otaceni (P-angle)
@@ -255,6 +259,35 @@ class sunpos(AromNode):
                         print(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png')
                         cv2.imwrite(directory+"/P_"+datetime.datetime.utcnow().strftime('%T')+'.png', gray)
 
+                        if not self.hdf_file:
+                            obsarea = rospy.get_param(self.node_name +"/spec_obsarea")
+                            
+                            name = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%Y-%m-%d"), obsarea) + "/" + obsarea + datetime.datetime.now().strftime("_%Y-%m-%d_pointace.hdf")
+                            directory = os.path.dirname(name)
+                            if not os.path.exists(directory):
+                                os.makedirs(directory)
+                            self.hdf_file = h5py.File(name, "a")
+
+                            dataset_name = "Pointace_{}".format(datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+                            self.hdfset = self.hdf_file.create_dataset(dataset_name, maxshape = (None, None), shape = (0, 11), dtype='f', chunks=True)
+
+                            self.hdfset.attrs.create('COL00', "time")
+                            self.hdfset.attrs.create('COL01', "sun area in camera px^2")
+                            self.hdfset.attrs.create('COL02', "sun center from camera center - in X")
+                            self.hdfset.attrs.create('COL03', "sun center from camera center - in Y")
+                            self.hdfset.attrs.create('COL04', "Target camera coordinates - in X")
+                            self.hdfset.attrs.create('COL05', "Target camera coordinates - in Y")
+                            self.hdfset.attrs.create('COL06', "Error btween current position and target position. In coordinates of coelostat, AZ")
+                            self.hdfset.attrs.create('COL07', "Error btween current position and target position. In coordinates of coelostat, ALT")
+                            self.hdfset.attrs.create('COL08', "P-angle")
+                            self.hdfset.attrs.create('COL09', "angle of day movement")
+                            self.hdfset.attrs.create('COL10', "carusel position - position")
+
+                        try:
+                            self.AppendRow([time.time(), used_area, cpx, cpy, offx, offy, coel_errorx, coel_errory, self.position_angle, self.angle, rospy.get_param('/carusel_position', 999)])
+                        except Exception as e:
+                            print(e)
+
                     print("Hold:", self.hold)
                     if self.hold: # and int(area) > 200000:
                         if self.hold_time+1.5 < time.time():
@@ -283,6 +316,8 @@ class sunpos(AromNode):
                             os.makedirs(directory)
                         with open(name, 'a+') as f:
                             f.write('{};{};{};{}\n'.format(time.time(), self.pos_rot, self.pos_dist, 0))
+                        
+                                
                     
                     print("daymove_calib", self.daymove_calib)
                     if self.daymove_calib:
@@ -360,6 +395,16 @@ class sunpos(AromNode):
 
             except Exception as e:
                 print(e)
+
+    def AppendRow(self, data, flush = False):
+        #print("append")
+        size = self.hdfset.shape
+        self.hdfset.resize((size[0]+1, size[1]))
+        self.hdfset[size[0],:] = data
+        if (size[0] % 200 == 0) or flush or (self.last_flush+10) < time.time():
+            self.hdf_file.flush()
+            self.last_flush = time.time()
+            print("Flush to file")
 
 
     def getfilename(self):
@@ -459,7 +504,7 @@ class sunpos(AromNode):
         self.set_window.setLayout(mainLayout)
         #self.set_window.closeEvent(self.ExitApp)
 
-        integration = QLineEdit(str(0.01))
+        integration = QLineEdit(str(2))
         integration.setValidator(QtGui.QDoubleValidator())
         integration.textChanged.connect(lambda: self.set_exposure(float(integration.text())) )
         integration.setMaxLength(5)
