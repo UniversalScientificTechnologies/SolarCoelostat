@@ -3,6 +3,7 @@
 
 import time
 import datetime
+from astropy.time import Time
 import rospy
 import rosparam
 import std_msgs
@@ -10,7 +11,7 @@ import numpy as np
 import json
 import yaml
 import os, sys
-import h5py
+#import h5py
 import pyqtgraph as pg
 from PyQt4 import QtGui
 from PyQt4 import QtCore
@@ -19,7 +20,7 @@ import zwoasi as asi
 import cv2
 import matplotlib.pyplot as plt
 from queue import Queue
-
+from astropy.io import fits
 
 
 from arom_helper import AromNode
@@ -90,28 +91,47 @@ class SpecCapture(Thread):
         #directory = os.path.join("/mnt/data/", datetime.datetime.utcnow().strftime("%y-%m-%d"), "area", "Pointing")
         if not os.path.exists(directory):
             os.makedirs(directory)
-        return directory + self.obs_area + datetime.datetime.utcnow().strftime("_%Y%m%d_%H%M%S" + ".tif")
+        return directory + self.obs_area + datetime.datetime.utcnow().strftime("_%Y%m%d_%H%M%S_%f" + ".fits")
+
+    def write_fits(self, img):
+
+        nt = Time.now()
+
+	hdr = fits.Header()
+        hdr['OBSERVATORY'] = "Ondrejov"
+        hdr['SOFTWARE'] = "OBS_SLITJAW, ust.cz"
+        hdr['BITPIX'] = 16
+        hdr['NAXIS'] = 2
+        hdr['NAXIS1'] = img.shape[0]
+        hdr['NAXIS2'] = img.shape[1]
+        hdr['DATE'] = nt.fits
+        hdr['DATE-OBS'] = nt.fits
+        hdr['ORIGIN'] = ''
+        hdr['OBJECT'] = "sun"
+        hdr['BSCALE'] = 1
+        hdr['BZERO'] = 2**15
+        hdr['TELESCOPE'] = "Fikus"
+        hdr['INSTRUMENT'] = "Fikus"
+
+        hdu = fits.PrimaryHDU(img, header=hdr)
+        hdul = fits.HDUList([hdu])
+        hdul.writeto(self.getfilename())
 
     def run(self):
         print("Start of thread")
         self.NewFileToSave()  #vytvori novou slozku
-        
+        self.camera.set_image_type(asi.ASI_IMG_RAW16)
+
         print("start ...")
         while self.alive:
-            print("loop")
-            #print(self.last_save+self.period, time.time())
             if self.recording and (self.last_save + self.period/1000) < time.time():
-                print("save")
+                print("Save image")
                 self.last_save = time.time()
-                self.camera.set_image_type(asi.ASI_IMG_RAW16)
-                time.sleep(0.2)
-                img = self.camera.capture(filename = self.getfilename())
-                self.camera.set_image_type(asi.ASI_IMG_Y8)
-                time.sleep(0.2)
-            #else: 
-            img = self.camera.capture()
-            self.queue.put(img)
-
+                img = self.camera.capture()
+                self.write_fits(img)
+            else:
+                img = self.camera.capture()
+            self.queue.put(img/257)
 
         self.camera.close()
 
