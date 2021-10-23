@@ -54,13 +54,14 @@ class SpecCapture(Thread):
 
         asi.init('/home/roman/ASI_linux_mac_SDK/lib/x64/libASICamera2.so')
         self.camera = asi.Camera(0)
+        print(self.camera)
         camera_info = self.camera.get_camera_property()
 
         # Get all of the camera controls
         print('')
         print('Camera controls:')
 
-        self.camera.set_control_value(asi.ASI_BANDWIDTHOVERLOAD, self.camera.get_controls()['BandWidth']['MinValue'])
+        self.camera.set_control_value(asi.ASI_BANDWIDTHOVERLOAD, self.camera.get_controls()['BandWidth']['MaxValue'])
         #self.camera.disable_dark_subtract()
 
         self.camera.set_image_type(asi.ASI_IMG_Y8)
@@ -98,7 +99,7 @@ class SpecCapture(Thread):
         nt = Time.now()
 
 	hdr = fits.Header()
-        hdr['OBSERVATORY'] = "Ondrejov"
+        hdr['OBS'] = "Ondrejov, ASU CAS"
         hdr['SOFTWARE'] = "OBS_SLITJAW, ust.cz"
         hdr['BITPIX'] = 16
         hdr['NAXIS'] = 2
@@ -110,8 +111,12 @@ class SpecCapture(Thread):
         hdr['OBJECT'] = "sun"
         hdr['BSCALE'] = 1
         hdr['BZERO'] = 2**15
-        hdr['TELESCOPE'] = "Fikus"
-        hdr['INSTRUMENT'] = "Fikus"
+        hdr['TELES'] = "FICUS"
+        hdr['INSTR'] = "FICUS"
+        hdr['GAIN'] = self.camera.get_control_value(asi.ASI_GAIN)[0]
+        hdr['EXPO'] = self.camera.get_control_value(asi.ASI_EXPOSURE)[0] / 1000.0
+        hdr['TEMP'] = self.camera.get_control_value(asi.ASI_TEMPERATURE)[0] / 10.0
+
 
         hdu = fits.PrimaryHDU(img, header=hdr)
         hdul = fits.HDUList([hdu])
@@ -122,17 +127,32 @@ class SpecCapture(Thread):
         self.NewFileToSave()  #vytvori novou slozku
         self.camera.set_image_type(asi.ASI_IMG_RAW16)
 
+        df_last = None
+        gain_last = None
+        exposure_last = None
+
+        last_prev = 0
+        last_frame = 0
+
         print("start ...")
+        self.camera.start_video_capture()
         while self.alive:
+            df = self.camera.get_dropped_frames()
+            img = self.camera.capture_video_frame()
+            print("freq:", 1/(time.time() - last_frame))
+            last_frame = time.time()
+
             if self.recording and (self.last_save + self.period/1000) < time.time():
                 print("Save image")
                 self.last_save = time.time()
-                img = self.camera.capture()
+		img = self.camera.capture_video_frame()
                 self.write_fits(img)
-            else:
-                img = self.camera.capture()
-            self.queue.put(img/257)
 
+            if(last_prev + 0.1) < time.time():
+                self.queue.put(img/257)
+                last_prev = time.time()
+
+        self.camera.stop_video_capture()
         self.camera.close()
 
     def getTitle(self):
