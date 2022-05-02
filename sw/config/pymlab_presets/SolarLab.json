@@ -1,0 +1,26 @@
+{
+    "name": "pymlab", 
+    "children": [
+        {
+            "port": 1, 
+            "name": "bus1",
+            "children": [
+                {
+                    "type": "i2clcd",
+                    "name": "StatusLCD",
+                    "address": 63
+                }, 
+                {
+                    "type": "i2cspi", 
+                    "name": "mirrorRADEC", 
+                    "address": 46
+                },
+                {
+                    "type": "i2cspi", 
+                    "name": "mirrorTIME", 
+                    "address": 44
+                }
+            ]
+        }
+    ]
+}
